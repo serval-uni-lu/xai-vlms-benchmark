@@ -124,18 +124,18 @@ def run_benchmark(args):
                         parse_failures_this_run += 1
 
                         # Log the failure so you can analyze the bad text later, but SKIP the XAI math
-                        log_dict = {
-                            "sample_idx": idx,
-                            "explainer": explainer_name,
-                            "question": question,
-                            "label": label,
-                            "category": category,
-                            "prediction": full_text,
-                            "parse_success": False,
-                            "decision_token_idx": -1,
-                            "decision_token_str": None,
-                        }
-                        save_to_jsonl(log_dict, output_file)
+                        # log_dict = {
+                        #     "sample_idx": idx,
+                        #     "explainer": explainer_name,
+                        #     "question": question,
+                        #     "label": label,
+                        #     "category": category,
+                        #     "prediction": full_text,
+                        #     "parse_success": False,
+                        #     "decision_token_idx": -1,
+                        #     "decision_token_str": None,
+                        # }
+                        # save_to_jsonl(log_dict, output_file)
                         torch.cuda.empty_cache()
                         continue
 
