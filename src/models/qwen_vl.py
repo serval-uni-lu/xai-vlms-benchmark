@@ -85,7 +85,9 @@ class QwenVLWrapper(BaseVLMWrapper):
         }
         return attnLRP
 
-    def get_inputs(self, image, text, safe_pixels=313600) -> dict[str, Any]:
+    def get_inputs(self, image, text,
+                   safe_pixels=313600
+                   ) -> dict[str, Any]:
         messages = [
             {
                 "role": "user",

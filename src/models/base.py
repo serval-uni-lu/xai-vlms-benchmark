@@ -9,14 +9,14 @@ from transformers import (
     LlavaForConditionalGeneration,
     AutoModelForImageTextToText,
     Qwen2_5_VLForConditionalGeneration,
-    InternVLForConditionalGeneration,
+    Qwen3_5ForConditionalGeneration,
 )
 
 # Define a Union of all supported VLM classes
 # This tells VS Code "The model is strictly one of these
 # not just a generic Module"
 #SupportedVLM = LlavaForConditionalGeneration | Qwen2_5_VLForConditionalGeneration | InternVLForConditionalGeneration
-SupportedVLM = LlavaForConditionalGeneration | Qwen2_5_VLForConditionalGeneration | PreTrainedModel
+SupportedVLM = LlavaForConditionalGeneration | Qwen2_5_VLForConditionalGeneration | PreTrainedModel | Qwen3_5ForConditionalGeneration
 
 
 # 2. Updated Class Definition (Python 3.12+)

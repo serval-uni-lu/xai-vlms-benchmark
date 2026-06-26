@@ -1,20 +1,20 @@
 import math
+import numpy as np
+import networkx as nx
+import torch
+from PIL import Image
 import warnings
-
+import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.path as mpath
-import matplotlib.pyplot as plt
-import networkx as nx
-import numpy as np
-import shapiq
-import torch
-from colour import Color
 from matplotlib.font_manager import FontProperties
-from matplotlib.offsetbox import AnnotationBbox, OffsetImage
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from matplotlib.text import Text
-from PIL import Image
+from colour import Color
+import shapiq
 
-from .utils import get_conditioned_interactions, get_max_min_values, get_subset, sort_interactions
+from .utils import get_subset, sort_interactions, get_max_min_values, get_conditioned_interactions
+
 
 NORMAL_NODE_SIZE = 0.125  # 0.125
 BASE_ALPHA_VALUE = 1.0  # the transparency level for the highest interaction
@@ -412,7 +412,7 @@ def plot_image_and_text_together(
     iv_image = get_subset(iv, players=image_players)
 
     if plot_interactions and not normalize_jointly:
-        warnings.warn('`normalize_jointly` needs to be `True` when `plot_interactions` is `True`. Setting normalize_jointly to `True`.')
+        warnings.warn(f'`normalize_jointly` needs to be `True` when `plot_interactions` is `True`. Setting normalize_jointly to `True`.')
         normalize_jointly = True
 
     # get colors

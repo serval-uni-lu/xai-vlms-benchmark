@@ -1,10 +1,10 @@
 import random
 import warnings
-
-import numpy as np
-import shapiq
-import torch
 from PIL import Image
+
+import torch
+import shapiq
+import numpy as np
 from shapiq import InteractionValues
 
 

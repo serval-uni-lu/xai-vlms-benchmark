@@ -721,12 +721,16 @@ def TAM(
     # decode ids
     prompt_tokens = [tokens[prompt_idx[0] + 1 : prompt_idx[1]]]
     answer_tokens = [tokens[answer_idx[0] + 1 :]]
-    prompt = processor.tokenizer.tokenize(
-        processor.batch_decode(prompt_tokens, skip_special_tokens=False, clean_up_tokenization_spaces=False)[0]
-    )
-    answer = processor.tokenizer.tokenize(
-        processor.batch_decode(answer_tokens, skip_special_tokens=False, clean_up_tokenization_spaces=False)[0]
-    )
+    # prompt = processor.tokenizer.tokenize(
+    #     processor.batch_decode(prompt_tokens, skip_special_tokens=False, clean_up_tokenization_spaces=False)[0]
+    # )
+    # answer = processor.tokenizer.tokenize(
+    #     processor.batch_decode(answer_tokens, skip_special_tokens=False, clean_up_tokenization_spaces=False)[0]
+    # )
+    # Safe extraction: guarantees len(prompt) exactly equals len(prompt_tokens[0])
+    # and strictly respects the dimensions of the logit_list tensor!
+    prompt = [processor.tokenizer.decode([tok_id]) for tok_id in prompt_tokens[0]]
+    answer = [processor.tokenizer.decode([tok_id]) for tok_id in answer_tokens[0]]
     txt_all = prompt + answer
 
     # round_idx indicates the round of generation, this_token_idx is for the exaplained target token
@@ -844,6 +848,18 @@ def TAM(
         cv_img = cv2.cvtColor(cv_img, cv2.COLOR_RGB2BGR)
     else:  # video
         cv_img = [cv2.cvtColor(np.array(_), cv2.COLOR_RGB2BGR) for _ in vision_input[0]]
+
+    # ==========================================================
+    # BOUNDS SAFETY GUARD: Prevent Off-By-One Tensor Crashes
+    # ==========================================================
+    max_valid_idx = logit_list[round_idx].shape[1] - 1
+    
+    # Clamp the index so it cannot step off the edge of the tensor
+    if this_token_idx > max_valid_idx:
+        this_token_idx = max_valid_idx
+    elif this_token_idx < 0:
+        # Handle negative indexing safely
+        this_token_idx = max(0, max_valid_idx + 1 + this_token_idx)
 
     # prepare top candidates
     candi_scores, candi_ids = logit_list[round_idx][0, this_token_idx].topk(3)

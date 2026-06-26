@@ -66,6 +66,28 @@ def pred_probs(
 
     other_kwargs = {k: v for k, v in inputs.items() if k not in ["input_ids", "pixel_values", "attention_mask"]}
 
+    # ==========================================================
+    # MULTIMODAL ROPE FIX FOR QWEN 3.5
+    # ==========================================================
+    if "mm_token_type_ids" in other_kwargs:
+        orig_mm_types = other_kwargs["mm_token_type_ids"]
+        seq_len_diff = new_input_ids.shape[1] - orig_mm_types.shape[1]
+        
+        # If we concatenated generated tokens, pad the type array with 0 (text type)
+        if seq_len_diff > 0:
+            pad_types = torch.zeros(
+                (orig_mm_types.shape[0], seq_len_diff), 
+                dtype=orig_mm_types.dtype, 
+                device=orig_mm_types.device
+            )
+            other_kwargs["mm_token_type_ids"] = torch.cat([orig_mm_types, pad_types], dim=1)
+            
+    # Always delete position_ids if modifying sequence length so Qwen 
+    # is forced to dynamically recalculate RoPE indices correctly!
+    if "position_ids" in other_kwargs:
+        del other_kwargs["position_ids"]
+    # ==========================================================
+
     # Intercept and flatten 5D tensors for InternVL/AnyRes models
     if pixel_values is not None and pixel_values.ndim == 5:
         B, num_tiles, C, H, W = pixel_values.shape

@@ -239,6 +239,28 @@ class RolloutExplainer(BaseExplainer):
         inputs["input_ids"] = full_ids.clone().unsqueeze(0)  # (batch, seq_len)
         inputs["attention_mask"] = torch.ones_like(inputs["input_ids"])
 
+        # --- MULTIMODAL ROPE FIX FOR QWEN ---
+        # If the model requires mm_token_type_ids, we must expand it to match the new input_ids length.
+        # Since all generated tokens are text, we pad it with the text type (0).
+        if "mm_token_type_ids" in inputs:
+            orig_mm_types = inputs["mm_token_type_ids"]
+            
+            # Create a tensor of 0s (text type) for the newly generated answer tokens
+            pad_types = torch.zeros(
+                (orig_mm_types.shape[0], num_ans_tokens), 
+                dtype=orig_mm_types.dtype, 
+                device=orig_mm_types.device
+            )
+            
+            # Concatenate them together so it matches the length of the full_ids
+            inputs["mm_token_type_ids"] = torch.cat([orig_mm_types, pad_types], dim=1)
+            
+        # Optional: Also catch position_ids if they were explicitly passed by the processor
+        if "position_ids" in inputs:
+            # We delete it so Qwen is forced to dynamically recalculate the correct 
+            # position IDs using the newly padded mm_token_type_ids
+            del inputs["position_ids"]
+
         with self.manage_explainability_state():
             if self.requires_grad:  # GradientxRollout
                 outputs = self.model(**inputs, output_attentions=True)

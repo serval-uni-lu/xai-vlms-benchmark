@@ -99,6 +99,7 @@ class FaithfulnessMetric(BaseMetric):
         sample: dict[str, Any],
         xai_result: dict[str, Any],
         required_metrics=None,
+        compute_syn_only=False,
     ) -> dict[str, Any]:
 
         inputs = xai_result["inputs"]
@@ -129,7 +130,7 @@ class FaithfulnessMetric(BaseMetric):
         semantic_mask = get_text_mask(inputs["input_ids"], model_type, wrapper.processor.tokenizer)
 
         # --- A. Image Perturbation ---
-        if pixel_attr is not None:
+        if pixel_attr is not None and not compute_syn_only:
             start_time = time.perf_counter()
 
             img_res = self._evaluate_over_tokens(
@@ -149,7 +150,7 @@ class FaithfulnessMetric(BaseMetric):
             results.update(self._format_results("img", img_res, required_metrics=required_metrics))
 
         # --- B. Token Perturbation ---
-        if tok_attr is not None:
+        if tok_attr is not None and not compute_syn_only:
             start_time = time.perf_counter()
 
             tok_res = self._evaluate_over_tokens(

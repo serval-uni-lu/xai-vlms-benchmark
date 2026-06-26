@@ -288,3 +288,4 @@ class LXTExplainer(BaseExplainer):
         relevance_text = relevance_text[:, :t_start]
 
         return relevance_text, relevance_img
+

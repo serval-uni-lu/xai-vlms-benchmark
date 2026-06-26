@@ -7,8 +7,14 @@ import traceback
 
 import torch
 from tqdm import tqdm
+import transformers
+from packaging.version import Version
 
 # Ensure you import the new function we built!
+
+
+if Version(transformers.__version__) > Version("5.10"):
+    import src.utils.lxt_shim
 from src.datasets.factory import get_dataloader
 from src.explainers.factory import get_explainer
 from src.metrics import FaithfulnessMetric
@@ -30,23 +36,27 @@ def run_benchmark(args):
 
     explainer_configs = [load_yaml(path) for path in explainer_paths]
 
-    output_dir = os.path.join(args.output_dir, model_config["name"], f"{dataset_config['name']}")
+    output_dir = os.path.join(args.output_dir, model_config["vlm_type"], f"{dataset_config['name']}")
     os.makedirs(output_dir, exist_ok=True)
 
     needs_attention = any(cfg.get("requires_attention", False) for cfg in explainer_configs)
     attn_mode = "eager" if needs_attention else None
     print(f"[*] Attention Implementation set to: {attn_mode}")
 
+    gpu_id = args.gpu_id
+    if gpu_id == -1:
+        gpu_id = "auto"
+
     model_wrapper = load_vlm(
         model_config=model_config,
         attn_implementation=attn_mode,
-        gpu_node=args.gpu_id,
+        gpu_node=gpu_id,
         output_attentions=needs_attention,
     )
     model_wrapper.model_config = {
         "model_config": model_config,
         "attn_implementation": attn_mode,
-        "gpu_node": args.gpu_id,
+        "gpu_node": gpu_id,
         "output_attentions": needs_attention,
     }
 
@@ -71,7 +81,7 @@ def run_benchmark(args):
             explainer, explainer_name = get_explainer(explainer_path, model_wrapper, model_config)
             print(f"\n{'=' * 50}\n[*] Evaluating: {explainer_name} on {model_config['name']}\n{'=' * 50}")
 
-            run_name = f"{model_config['name']}_{dataset_config['name']}_{explainer_name}"
+            run_name = f"{model_config['vlm_type']}_{dataset_config['name']}_{explainer_name}"
             output_file = os.path.join(output_dir, f"{run_name}_results.jsonl")
 
             # --- RESUME LOGIC ---
@@ -92,11 +102,15 @@ def run_benchmark(args):
 
                 if idx in processed_indices:
                     continue
-                if model_config["name"] == "llava":
+                if "llava" in model_config["vlm_type"]:
                     constraint = "\nAnswer"
+                elif "qwen3_5" in model_config["vlm_type"]:
+                    constraint = ""
+                    if hasattr(model_wrapper, "is_mcvqa"):
+                        model_wrapper.is_mcvqa = True
                 else:
-                    constraint = "\nAnswer directly with only the letter \
-                        inside parentheses, and nothing else. \nAnswer:"
+                    constraint = "\nAnswer directly with only the letter inside parentheses,\
+                        and nothing else. \nAnswer:"
                 img = sample["image"]
                 question = sample["question"] + constraint
                 label = sample["label"]
@@ -180,26 +194,26 @@ def run_benchmark(args):
                     del pred_results, img_attrs, text_attrs
                     torch.cuda.empty_cache()
 
-                except RuntimeError as e:
-                    if "CUDA out of memory" in str(e):
-                        print(f"\n[!] CUDA OOM on sample {idx}. Image/Text was too large. Skipping...")
+                # except RuntimeError as e:
+                #     if "CUDA out of memory" in str(e):
+                #         print(f"\n[!] CUDA OOM on sample {idx}. Image/Text was too large. Skipping...")
 
-                        # 1. Delete any massive variables that might have been partially created
-                        for var in ["inputs", "pred_results", "xai_result", "img_attrs", "text_attrs"]:
-                            if var in locals():
-                                del locals()[var]
+                #         # 1. Delete any massive variables that might have been partially created
+                #         for var in ["inputs", "pred_results", "xai_result", "img_attrs", "text_attrs"]:
+                #             if var in locals():
+                #                 del locals()[var]
 
-                        # 2. Force Python garbage collection
-                        gc.collect()
+                #         # 2. Force Python garbage collection
+                #         gc.collect()
 
-                        # 3. Flush the GPU memory back to the OS
-                        torch.cuda.empty_cache()
+                #         # 3. Flush the GPU memory back to the OS
+                #         torch.cuda.empty_cache()
 
-                        # 4. Log the failure so your metrics don't get skewed
-                        log_dict = {"sample_idx": idx, "error": "OOM_SKIPPED"}
-                        save_to_jsonl(log_dict, output_file)
+                #         # 4. Log the failure so your metrics don't get skewed
+                #         # log_dict = {"sample_idx": idx, "error": "OOM_SKIPPED"}
+                #         #save_to_jsonl(log_dict, output_file)
 
-                        continue  # Move safely to the next sample
+                #         continue  # Move safely to the next sample
 
                 except Exception as e:
                     print(f"\n[!] Explainer failed on sample {idx}: {e}")

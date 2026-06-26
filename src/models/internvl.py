@@ -20,7 +20,8 @@ class InternVLWrapper(BaseVLMWrapper):
         super().__init__(model, processor)
         # self._get_original_attention_forward()
 
-    def get_inputs(self, image, text) -> dict[str, Any]:
+    def get_inputs(self, image, text
+                    ) -> dict[str, Any]:
         messages = [
             {
                 "role": "user",

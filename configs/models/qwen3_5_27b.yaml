@@ -1,0 +1,5 @@
+name: "qwenvl"
+vlm_type: "qwen3_5_27b"
+model_id: "Qwen/Qwen3.5-27B"
+trust_remote_code: false
+cam_target_layer: "layers.7.post_attention_layernorm"

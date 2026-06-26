@@ -1,5 +1,5 @@
 name: "llava"
-vlm_type: "llava"
+vlm_type: "llava_13b"
 model_id: "llava-hf/llava-1.5-13b-hf"
 trust_remote_code: false
 cam_target_layer: "layers.7.post_attention_layernorm"

@@ -3,6 +3,7 @@ import warnings
 
 import numpy as np
 from scipy.special import binom
+
 from shapiq.utils.sets import powerset
 
 
