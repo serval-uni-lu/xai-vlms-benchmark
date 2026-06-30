@@ -75,6 +75,9 @@ class LLaVACAMExplainer(BaseExplainer):
         activations = self.feature_maps
         gradients = self.gradients
 
+        # MULTI-GPU MASK DEVICE FIX
+        mask = mask.to(activations.device)
+
         feats = activations[0, mask, :]
         grads = gradients[0, mask, :]
 

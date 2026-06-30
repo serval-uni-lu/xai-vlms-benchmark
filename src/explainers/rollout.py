@@ -1,5 +1,5 @@
 import contextlib
-
+import inspect
 import torch
 import torch.nn.functional as F
 
@@ -50,8 +50,18 @@ class RolloutExplainer(BaseExplainer):
         # 1. Safely extract the weights (Stashed OR from output tuple)
         attn_data = getattr(module, "saved_attn_weights", None)
         if attn_data is None:
-            # Fallback to standard Hugging Face tuple output
-            attn_data = output[-1]
+            if isinstance(output, tuple) and len(output) > 1 and output[1] is not None:
+                attn_data = output[1]
+            else:
+                # ==========================================================
+                # QWEN 3.5 HYBRID ARCHITECTURE / MULTI-GPU FIX
+                # If a layer (like a Gated DeltaNet) does not physically 
+                # compute an attention matrix, or if accelerate stripped it,
+                # we gracefully skip it and let Rollout calculate over the 
+                # remaining Full Attention layers.
+                # ==========================================================
+                return
+
 
         # 2. Force it into a list so we can handle standard models and Qwen interchangeably
         chunk_list = attn_data if isinstance(attn_data, list) else [attn_data]
@@ -79,6 +89,16 @@ class RolloutExplainer(BaseExplainer):
 
         # Cleanup stash to prevent memory leaks
         module.saved_attn_weights = None
+    
+    # def _force_attention_pre_hook(self, module, args, kwargs):
+    #     """
+    #     Surgically injects output_attentions=True into the kwargs 
+    #     just milliseconds before the forward pass runs, bypassing multi-GPU wrappers.
+    #     """
+    #     sig = inspect.signature(module.forward)
+    #     if "output_attentions" in sig.parameters:
+    #         kwargs["output_attentions"] = True
+    #     return args, kwargs
 
     def _vision_hook(self, module, input, output):
         self._generic_hook(module, output, self.vision_attentions, self.vision_grads)
@@ -93,6 +113,22 @@ class RolloutExplainer(BaseExplainer):
                 self.hooks.append(module.register_forward_hook(self._vision_hook))
             elif self.wrapper.llm_module_name and self.wrapper.llm_module_name in str(type(module)):
                 self.hooks.append(module.register_forward_hook(self._llm_hook))
+    
+    # def register_hooks(self):
+    #     self.clear_hooks()
+    #     for _, module in self.model.named_modules():
+    #         # --- VISION HOOKS ---
+    #         if self.wrapper.vision_module_name and self.wrapper.vision_module_name in str(type(module)):
+    #             # 1. Inject the flag BEFORE the layer runs
+    #             self.hooks.append(module.register_forward_pre_hook(self._force_attention_pre_hook, with_kwargs=True))
+    #             # 2. Catch the matrix AFTER the layer runs
+    #             self.hooks.append(module.register_forward_hook(self._vision_hook))
+                
+    #         # --- LLM HOOKS ---
+    #         elif self.wrapper.llm_module_name and self.wrapper.llm_module_name in str(type(module)):
+    #             # Do the same for LLM layers to be bulletproof
+    #             self.hooks.append(module.register_forward_pre_hook(self._force_attention_pre_hook, with_kwargs=True))
+    #             self.hooks.append(module.register_forward_hook(self._llm_hook))
 
     def clear_hooks(self):
         for hook in self.hooks:

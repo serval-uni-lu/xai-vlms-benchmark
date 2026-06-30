@@ -25,7 +25,7 @@ class Qwen3_5Wrapper(BaseVLMWrapper):
     def __init__(self, model: nn.Module, processor: Any):
         super().__init__(model, processor)
         self._get_original_attention_forward()
-        self.is_mcvqa = False
+        self.is_mcvqa = True
 
     def embed_text(self, input_ids: torch.Tensor) -> torch.Tensor:
         return self.model.get_input_embeddings()(input_ids)
