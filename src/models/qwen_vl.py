@@ -52,7 +52,7 @@ class QwenVLWrapper(BaseVLMWrapper):
             if image_grid_thw.shape[0] == 1 and batch_size > 1:
                 image_grid_thw = image_grid_thw.repeat(batch_size, 1)
 
-        image_embeds = self.model.get_image_features(pixel_values, image_grid_thw=image_grid_thw)
+        image_embeds = self.model.get_image_features(pixel_values, image_grid_thw=image_grid_thw).pooler_output
         return image_embeds
 
     def merge_embeddings(

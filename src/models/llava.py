@@ -76,7 +76,7 @@ class LlavaWrapper(BaseVLMWrapper):
             vision_feature_layer=vision_feature_layer,
             vision_feature_select_strategy=vision_feature_select_strategy,
             return_dict=True,
-        )
+        ).pooler_output
         return image_features
 
     def embed_text(self, input_ids: torch.Tensor) -> torch.Tensor:

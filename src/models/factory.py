@@ -81,7 +81,7 @@ def load_vlm(
     # 3. Load Processor
     try:
         processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=trust_remote)
-        if vlm_type == VLMType.INTERNVL:
+        if VLMType.INTERNVL in vlm_type:
             # Reduce the number of tiles to avoid VRAM and GPU overcomsumption
             processor.image_processor.max_patches = 2
 
@@ -94,9 +94,9 @@ def load_vlm(
             model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_id, **load_kwargs)
         elif VLMType.QWEN3_5 in vlm_type:
             model = Qwen3_5ForConditionalGeneration.from_pretrained(model_id, **load_kwargs)
-        elif vlm_type == VLMType.INTERNVL:
+        elif VLMType.INTERNVL in vlm_type:
             model = AutoModelForImageTextToText.from_pretrained(model_id, **load_kwargs)
-        elif vlm_type == VLMType.LLAVA:
+        elif VLMType.LLAVA in vlm_type:
             model = LlavaForConditionalGeneration.from_pretrained(model_id, **load_kwargs)
         else:
             print(f"[!] Warning: Falling back to AutoModelForCausalLM for {vlm_type}")
@@ -136,10 +136,10 @@ def load_vlm(
     elif VLMType.QWEN3_5 in vlm_type:
         return Qwen3_5Wrapper(model, processor)
 
-    elif vlm_type == VLMType.INTERNVL:
+    elif VLMType.INTERNVL in vlm_type:
         return InternVLWrapper(model, processor)
 
-    elif vlm_type == VLMType.LLAVA:
+    elif VLMType.LLAVA in vlm_type:
         return LlavaWrapper(model, processor)
 
     else:

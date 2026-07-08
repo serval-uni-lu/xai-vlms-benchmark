@@ -2,6 +2,8 @@ import yaml
 
 from src.explainers import (
     CaptumExplainer,
+    EagleExplainer,
+    FIxLIPExplainer,
     LLaVACAMExplainer,
     LXTExplainer,
     OracleExplainer,
@@ -34,6 +36,8 @@ def get_explainer(explainer_yaml_path: str, model_wrapper: BaseVLMWrapper, model
 
     registry = {
         "CaptumExplainer": CaptumExplainer,
+        "EagleExplainer": EagleExplainer,
+        "FIxLIPExplainer": FIxLIPExplainer,
         "LXTExplainer": LXTExplainer,
         "TAMExplainer": TAMExplainer,
         "RolloutExplainer": RolloutExplainer,

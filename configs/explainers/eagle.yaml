@@ -1,0 +1,21 @@
+name: "Eagle"
+class: "EagleExplainer"
+requires_attention: False
+kwargs:
+  division_number: 50
+  text_kwargs:
+    lambda1: 1.0
+    lambda2: 1.0
+    search_scope: 10
+    pending_samples: 8
+    update_step: 5
+    batch_size: null
+    mask_strategy: replace
+    mask_token_id: null
+  vision_kwargs:
+    preproccessing_function: null
+    lambda1: 1.0
+    lambda2: 1.0
+    search_scope: 10
+    pending_samples: 8
+    update_step: 5

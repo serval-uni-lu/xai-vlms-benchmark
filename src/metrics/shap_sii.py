@@ -242,6 +242,12 @@ class MacroSynergyGame(Game):
                     grid = batch_inputs["image_grid_thw"]
                     # If grid is (1, 3), repeat it to (5, 3)
                     batch_inputs["image_grid_thw"] = grid.repeat(current_batch_size, 1)
+                
+                # --- Replicate mm_token_type_ids for the batch ---
+                if "mm_token_type_ids" in batch_inputs:
+                    mm_ids = batch_inputs["mm_token_type_ids"]
+                    # If mm_ids is (1, seq_len), repeat it to (B, seq_len)
+                    batch_inputs["mm_token_type_ids"] = mm_ids.repeat(current_batch_size, 1)
                 # --- QWEN2-VL SPECIFIC FIX END ---
 
             elif "internvl" in model_type:

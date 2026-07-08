@@ -1,4 +1,5 @@
-from typing import Any
+from typing import Any, Optional
+import copy
 
 import cv2
 import torch
@@ -20,7 +21,11 @@ class EagleExplainer(BaseExplainer):
     fully routed through your agnostic BaseVLMWrapper.
     """
 
-    def __init__(self, model_wrapper: BaseVLMWrapper, division_number: int = 50, **eagle_kwargs):
+    def __init__(self, model_wrapper: BaseVLMWrapper,
+                division_number: int = 50,
+                text_kwargs: Optional[dict[str, Any]] = None,
+                vision_kwargs: Optional[dict[str, Any]] = None,
+                ):
         """
         Args:
             model_wrapper (BaseVLMWrapper): Your custom unified VLM wrapper.
@@ -29,9 +34,11 @@ class EagleExplainer(BaseExplainer):
         """
         super().__init__(model_wrapper)
         self.division_number = division_number
-        self.eagle_kwargs = eagle_kwargs
-        self.vision_adaptor = UniversalEAGLEVisionAdaptor(self.wrapper)
-        self.text_adaptor = UniversalEAGLETextAdaptor(self.wrapper)
+        self.text_kwargs: dict[str, Any] = text_kwargs if text_kwargs is not None else {}
+        self.vision_kwargs: dict[str, Any] = vision_kwargs if vision_kwargs is not None else {}
+        
+        self.vision_adaptor = UniversalEAGLEVisionAdaptor(copy.deepcopy(self.wrapper))
+        self.text_adaptor = UniversalEAGLETextAdaptor(copy.deepcopy(self.wrapper))
 
     def _attribute(
         self, image: Image.Image | torch.Tensor, text: str,
@@ -83,7 +90,6 @@ class EagleExplainer(BaseExplainer):
 
         # Text Spans
         input_ids = base_inputs["input_ids"][0]
-        print(input_ids.shape)
         text_v_set, spans = build_text_span_masks_from_inputs(
             processor=self.wrapper.processor,
             input_ids=input_ids,
@@ -109,7 +115,7 @@ class EagleExplainer(BaseExplainer):
             self.vision_adaptor.selected_interpretation_token_word_id = [word_id]
 
             self.vision_explainer = EfficientMLLMSubModularExplanationVision(
-                self.vision_adaptor, **self.eagle_kwargs
+                self.vision_adaptor, **self.vision_kwargs
             )
             
             visual_s_set, saved_visual_json_file = self.vision_explainer(
@@ -120,7 +126,6 @@ class EagleExplainer(BaseExplainer):
                 visual_s_set, saved_visual_json_file, raw_cv_img
             )
             img_attrs_single = self._format_pixel_attributions(img_attrs_single, base_inputs)
-            print(img_attrs_single.shape)
             all_img_attrs.append(img_attrs_single)
 
             # --- B. Text Attribution Pass ---
@@ -134,7 +139,7 @@ class EagleExplainer(BaseExplainer):
             }
 
             self.text_explainer = EfficientLLMSubModularExplanationText(
-                model=self.text_adaptor, **self.eagle_kwargs
+                model=self.text_adaptor, **self.text_kwargs
             )
             
             token_s_set, _ = self.text_explainer(
@@ -331,6 +336,7 @@ class EagleExplainer(BaseExplainer):
         # ==========================================
         elif "internvl" in model_type:
             # Extract tile counts and dimensions
+            num_tiles, C, h_tile, w_tile = pixel_values.shape
             num_tiles = pixel_values.shape[1]
             h_tile, w_tile = pixel_values.shape[-2], pixel_values.shape[-1]
             

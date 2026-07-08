@@ -11,6 +11,11 @@ import torch
 from PIL import ImageFilter
 from torch import Tensor
 from tqdm import tqdm
+import transformers
+from packaging.version import Version
+
+if Version(transformers.__version__) > Version("5.10"):
+    import src.utils.lxt_shim
 
 # --- ABSTRACTED FACTORIES & UTILS ---
 from src.datasets.factory import get_dataloader
@@ -630,8 +635,8 @@ if __name__ == "__main__":
     )
 
     # Metric Params
-    parser.add_argument("--shapiq_budget", type=int, default=400, help="Budget for ShapIQ interaction approx")
-    parser.add_argument("--n_background_groups", type=int, default=6, help="Grouping for SII pixels")
+    parser.add_argument("--shapiq_budget", type=int, default=1200, help="Budget for ShapIQ interaction approx")
+    parser.add_argument("--n_background_groups", type=int, default=4, help="Grouping for SII pixels")
     parser.add_argument("--batch_size", type=int, default=16, help="Batch size for metric scoring")
 
     args = parser.parse_args()

@@ -5,7 +5,7 @@ set -e
 
 GPU_ID=${1:-0}
 EXPLAINERS=${2:-"tam"}
-MODEL_NAME=${3:-"internvl"}
+MODEL_NAME=${3:-"internvl_2b"}
 DATASET_NAME=${4:-"repope"}
 
 
@@ -31,7 +31,7 @@ if [ ! -f "$DATASETS" ]; then
 fi
 
 OUTPUT_DIR=(
-    "logs/correlation"
+    "logs/correlation_C_6"
 )
 
 
