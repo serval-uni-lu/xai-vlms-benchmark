@@ -20,7 +20,7 @@ if Version(transformers.__version__) > Version("5.10"):
 # --- ABSTRACTED FACTORIES & UTILS ---
 from src.datasets.factory import get_dataloader
 from src.explainers.factory import get_explainer
-from src.metrics.shap_sii import eval_sii_auc_with_class
+from src.metrics.shap_sii import eval_sii_auc_with_class, eval_pure_sii_with_class
 from src.models.factory import load_vlm
 from src.utils.faithfulness_utils import (
     _reshape_pixels_back_faithfulness,
@@ -32,6 +32,60 @@ from src.utils.faithfulness_utils import (
 )
 from src.utils.xai_utils import find_ynvqa_token_index, get_processed_indices, load_yaml, save_to_jsonl
 
+
+def build_object_semantic_mask(input_ids, tokenizer, object_name):
+    """
+    Dynamically finds the tokens corresponding to the 'object_name' within the full 
+    tokenized prompt (including chat templates) and creates a boolean mask.
+    
+    Args:
+        input_ids (Tensor): The tokenized input of shape (1, seq_len).
+        tokenizer: The HuggingFace tokenizer associated with the VLM.
+        object_name (str): The core object to isolate (e.g., "snowboard").
+        
+    Returns:
+        Tensor: A boolean mask of shape (1, seq_len) where True indicates the object tokens.
+    """
+    device = input_ids.device
+    mask = torch.zeros_like(input_ids, dtype=torch.bool, device=device)
+    ids_list = input_ids[0].tolist()
+    
+    # 1. Reconstruct the full string while tracking the character span of each token
+    current_str = ""
+    token_char_spans = []
+    
+    for tid in ids_list:
+        # We decode each token individually to see its exact string representation
+        token_str = tokenizer.decode([tid], skip_special_tokens=False)
+        start_char = len(current_str)
+        current_str += token_str
+        end_char = len(current_str)
+        
+        token_char_spans.append((start_char, end_char, token_str))
+        
+    # 2. Find the character position of the object in the full reconstructed string
+    target_start = current_str.lower().find(object_name.lower())
+    
+    if target_start == -1:
+        print(f"[Warning] Object '{object_name}' not found in the prompt sequence!")
+        # Fallback: just activate the last few tokens before special tokens if not found
+        return mask 
+        
+    target_end = target_start + len(object_name)
+    
+    # 3. Flag any token whose character span overlaps with the object's character span
+    for i, (start, end, text) in enumerate(token_char_spans):
+        # Math check for overlapping intervals
+        if max(start, target_start) < min(end, target_end):
+            # Exclude tokens that are purely whitespace (saves Shapley budget)
+            if text.strip() != "":
+                mask[0, i] = True
+                
+    # Quick debug print so you can verify it caught the right subwords
+    active_tokens = [tokenizer.decode([ids_list[i]]) for i in range(len(ids_list)) if mask[0, i]]
+    print(f"[*] Object '{object_name}' mapped to tokens: {active_tokens} (Total: {len(active_tokens)})")
+                
+    return mask[0]
 
 def safe_flatten_to_list(array_like):
     if hasattr(array_like, "flatten"):
@@ -405,6 +459,7 @@ def run_evaluation(args):
 
     # 4. Metric Hyperparameters
     pert_steps = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    pert_steps = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     device = model_wrapper.device
     tok = model_wrapper.processor.tokenizer
     pad_token_id = tok.pad_token_id if tok.pad_token_id is not None else 0
@@ -447,6 +502,8 @@ def run_evaluation(args):
 
                 try:
                     img = sample["image"]
+                    if args.resize_img is not None:
+                        img = img.resize((args.resize_img, args.resize_img))
                     question = sample["question"]
                     label = sample.get("label", "unknown")
                     image_id = sample.get("image_id", f"unknown_{idx}")
@@ -461,8 +518,11 @@ def run_evaluation(args):
 
                     # Get text only mask
                     model_type = getattr(model_wrapper.model.config, "model_type", "").lower()
-                    semantic_mask = get_text_mask(inputs["input_ids"], model_type, model_wrapper.processor.tokenizer)
-
+                    #semantic_mask = get_text_mask(inputs["input_ids"], model_type, model_wrapper.processor.tokenizer)
+                    semantic_mask = build_object_semantic_mask(inputs["input_ids"],
+                                           model_wrapper.processor.tokenizer,
+                                            sample["object_name"])
+                    
                     # 2. Identify the Decision Token
                     yes_no_tok_idx = find_ynvqa_token_index(
                         pred_results["new_ids"], text_answer=pred_results["text"], tokenizer=tok
@@ -503,7 +563,7 @@ def run_evaluation(args):
                     # METRIC 1: EXACT SHAP SII (Computationally Heavy)
                     # ==============================================================
                     start_time = time.perf_counter()
-                    shap_sii_res = eval_sii_auc_with_class(
+                    shap_sii_res = eval_pure_sii_with_class(
                         model=model_wrapper,
                         inputs=inputs,
                         target_ids=target_ids,
@@ -516,8 +576,8 @@ def run_evaluation(args):
                         blur_baseline=blur_baseline,
                         mask_value=0.0,
                         semantic_mask=semantic_mask,
-                        n_background_groups=args.n_background_groups,
-                        shapiq_budget=args.shapiq_budget,
+                        #n_background_groups=args.n_background_groups,
+                        #shapiq_budget=args.shapiq_budget,
                         batch_size=args.batch_size,
                     )
                     log_dict["time_sii"] = time.perf_counter() - start_time
@@ -625,6 +685,7 @@ if __name__ == "__main__":
         required=True,
         help="List of paths to explainer YAMLs",
     )
+    parser.add_argument("--resize_img", type=int, default=32,)
     parser.add_argument("--gpu_id", type=int, default=0, help="GPU node to use")
     parser.add_argument("--max_samples", type=int, default=None, help="Max samples to evaluate")
     parser.add_argument(
@@ -636,8 +697,8 @@ if __name__ == "__main__":
 
     # Metric Params
     parser.add_argument("--shapiq_budget", type=int, default=1200, help="Budget for ShapIQ interaction approx")
-    parser.add_argument("--n_background_groups", type=int, default=4, help="Grouping for SII pixels")
-    parser.add_argument("--batch_size", type=int, default=16, help="Batch size for metric scoring")
+    parser.add_argument("--n_background_groups", type=int, default=8, help="Grouping for SII pixels")
+    parser.add_argument("--batch_size", type=int, default=128, help="Batch size for metric scoring")
 
     args = parser.parse_args()
 
