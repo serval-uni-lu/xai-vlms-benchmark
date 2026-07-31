@@ -67,3 +67,15 @@ wget [https://raw.githubusercontent.com/YanNeu/RePOPE/refs/heads/main/annotation
 wget [https://raw.githubusercontent.com/YanNeu/RePOPE/refs/heads/main/annotations/coco_repope_adversarial.json](https://raw.githubusercontent.com/YanNeu/RePOPE/refs/heads/main/annotations/coco_repope_adversarial.json)
 cd ../..
 ```
+
+## GridVQA Dataset
+
+The [GridVQA dataset](https://github.com/deephelms28/GridVQA-X/tree/main) can be downloaded from [HuggingFace](https://huggingface.co/datasets/Aikyam-Lab/gridvqa-dataset) using
+
+```bash
+cd datasets
+mkdir gridvqa
+cd gridvqa
+hf download Aikyam-Lab/gridvqa-dataset --repo-type dataset --local-dir gridvqa/
+
+```

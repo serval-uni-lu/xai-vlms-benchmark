@@ -4,7 +4,7 @@
 set -e 
 
 GPU_ID=${1:-0}
-MODEL_NAME=${2:-"qwenvl_7b"}
+MODEL_NAME=${2:-"internvl_2b"}
 DATASET_NAME=${3:-"mmstar"}
 EXPLAINERS=${4:-"random gradcam tam llavacam inputxgradients integratedgradients rollout gradxrollout lxt"}
 

@@ -337,8 +337,8 @@ class EagleExplainer(BaseExplainer):
         elif "internvl" in model_type:
             # Extract tile counts and dimensions
             num_tiles, C, h_tile, w_tile = pixel_values.shape
-            num_tiles = pixel_values.shape[1]
-            h_tile, w_tile = pixel_values.shape[-2], pixel_values.shape[-1]
+            # num_tiles = pixel_values.shape[1]
+            # h_tile, w_tile = pixel_values.shape[-2], pixel_values.shape[-1]
             
             # *Benchmark Note*: InternVL dynamically slices the original image into local crops 
             # plus one global downsampled thumbnail. To make the heatmap perfectly match the 

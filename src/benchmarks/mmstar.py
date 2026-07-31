@@ -168,7 +168,8 @@ def run_benchmark(args):
                         "token_attribution": text_attrs[0:1],
                     }
 
-                    faith_sample = {"image": img, "text": question}
+                    #faith_sample = {"image": img, "text": question}
+                    faith_sample = {"image": None, "text": None}
                     faith_scores = faith_metrics.compute(model_wrapper, faith_sample, xai_result)
 
                     # 5. Full Logging with Token Info

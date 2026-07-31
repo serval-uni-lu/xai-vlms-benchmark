@@ -113,7 +113,7 @@ pad_token_id = tok.pad_token_id if tok.pad_token_id is not None else 0
 special_token_ids = vlm.special_token_ids
 filter_keywords = True
 
-metric = FaithfulnessMetric(
+faith_metrics = FaithfulnessMetric(
     perturbation_steps=pert_steps,
     pad_token_id=pad_token_id,
     special_token_ids=vlm.special_token_ids,
@@ -187,12 +187,13 @@ The full evaluation pipeline spanning $3$ VLMs, $9$ XAI methods, and $3$ dataset
 ### 1. Evaluation script
 To run the full suite of experiments (RePOPE, CVBench, MMStar), utilize the provided shell script:
 ```bash
-# bash scripts/run_all.sh GPU_ID "EXPLAINERS" MODEL_NAME DATASET_NAME
-bash scripts/run_all.sh 0 "tam,rollout,lxt" "qwenvl" "repope"
+# bash scripts/run_all.sh GPU_ID MODEL_NAME DATASET_NAME "EXPLAINERS"
+bash scripts/run_all.sh 0 "qwenvl" "repope" "tam,rollout,lxt"
 ```
 Note: Running the full instance benchmark requires significant compute time. We recommend executing this on a multi-GPU cluster.
 
-### 2. Computing Shapley Correlation
+
+### 2. Computing Shapley Correlation using macro-coalitions
 
 To reproduce the $\rho = 0.92$ Spearman correlation between $\mathcal{F}_{syn}$ and the exact Shapley Interaction Index (SII) (as seen in Figure 3 of the paper), run the dedicated correlation script:
 ```bash
@@ -201,6 +202,35 @@ bash scripts/run_correlation.sh 0 "rollout" "qwenvl" "repope"
 ```
 
 This script computes the exact SII using macro-coalitional downsampling via the `shapiq` library (located in `src/metrics/shap_sii.py`) and compares it against our continuous perturbation approximation.
+
+
+### 3. Computing Shapley Correlation using micro-coalitions
+
+```bash
+# bash scripts/run_correlation.sh GPU_ID EXPLAINERS MODEL_NAME DATASET_NAME
+bash scripts/run_correlation.sh 0 "rollout" "qwenvl" "repope"
+```
+
+This script computes the exact SII without macro-coalitional downsampling via the `shapiq` library (located in `src/metrics/shap_sii.py`) on samples where the image is downsampled to reduce the  and compares it against our continuous perturbation approximation.
+
+
+### 4. Computing $\mathcal{F}_{syn}$ on GridVQA dataset
+
+```bash
+# bash scripts/run_correlation.sh GPU_ID EXPLAINERS MODEL_NAME DATASET_NAME
+bash scripts/run_correlation.sh 0 "rollout" "qwenvl" "repope"
+```
+
+### 5. Hyperparameter $K$ sensitivity
+
+To reproduce the experiments on the sensitivity of $K$ hyperparameter on $\mathcal{F}_{syn}$, run this:
+
+```bash
+# bash scripts/run_sensitivity.sh GPU_ID MODEL_NAME DATASET_NAME EXPLAINERS
+bash scripts/run_sensitivity.sh 0 "internvl_2b" "mmstar" "rollout,tam"
+```
+
+
 
 ## 📁 Repository Structure
 
@@ -214,6 +244,7 @@ This script computes the exact SII using macro-coalitional downsampling via the 
 │   ├── README.md
 │   ├── coco
 │   └── repope
+│   └── gridvqa
 ├── pyproject.toml
 ├── ruff.toml
 ├── scripts                     # Bash scripts for full benchmark replication

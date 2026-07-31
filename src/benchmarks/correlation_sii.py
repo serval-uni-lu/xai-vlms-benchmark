@@ -459,7 +459,7 @@ def run_evaluation(args):
 
     # 4. Metric Hyperparameters
     pert_steps = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    pert_steps = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    pert_steps = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     device = model_wrapper.device
     tok = model_wrapper.processor.tokenizer
     pad_token_id = tok.pad_token_id if tok.pad_token_id is not None else 0

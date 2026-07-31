@@ -114,7 +114,7 @@ class FaithfulnessMetric(BaseMetric):
         elif tok_attr is not None:
             num_tokens = tok_attr.shape[0]
 
-        image = sample.get("image")
+        image = sample.get("image", None)
         # question = str(sample.get("question"))
         blur_baseline = None
         if image is not None:
@@ -122,6 +122,9 @@ class FaithfulnessMetric(BaseMetric):
             blurred_img = image.filter(ImageFilter.GaussianBlur(radius=30))
             blurred_inpts = wrapper.get_inputs(blurred_img, text)
             blur_baseline = blurred_inpts["pixel_values"]
+        else:
+            blur_baseline = torch.full_like(inputs["pixel_values"],
+                                            self.mask_value).to(wrapper.device)
 
         results = {}
 
