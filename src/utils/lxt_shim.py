@@ -1,6 +1,8 @@
 import sys
+
 import torch
 import transformers.pytorch_utils
+
 
 # =======================================================================
 # LXT DEPENDENCY SHIM: Inject missing HF functions (v4.57+ compatibility)
@@ -18,10 +20,7 @@ def prune_linear_layer(layer, index, dim=0):
     index = index.to(layer.weight.device)
     W = layer.weight.index_select(dim, index).clone().detach()
     if layer.bias is not None:
-        if dim == 1:
-            b = layer.bias.clone().detach()
-        else:
-            b = layer.bias[index].clone().detach()
+        b = layer.bias.clone().detach() if dim == 1 else layer.bias[index].clone().detach()
     new_size = list(layer.weight.size())
     new_size[dim] = len(index)
     new_layer = torch.nn.Linear(new_size[1], new_size[0], bias=layer.bias is not None).to(layer.weight.device)
@@ -43,7 +42,6 @@ transformers.pytorch_utils.apply_chunking_to_forward = apply_chunking_to_forward
 
 import lxt.efficient  # Import LXT to intercept its patcher
 
-
 # =======================================================================
 # LXT DICTIONARY SHIM: Intercept and repair ALL_ATTENTION_FUNCTIONS
 # =======================================================================
@@ -55,17 +53,18 @@ def safe_monkey_patch(module, patch_map, verbose=False):
     
     # 2. Immediately repair the damage across all loaded transformers models
     for mod_name, mod in list(sys.modules.items()):
-        if mod_name.startswith("transformers.models.") or mod_name.startswith("transformers.modeling_"):
-            if hasattr(mod, "ALL_ATTENTION_FUNCTIONS"):
-                registry = getattr(mod, "ALL_ATTENTION_FUNCTIONS")
+        if (mod_name.startswith("transformers.models.") \
+            or mod_name.startswith("transformers.modeling_")) \
+                and hasattr(mod, "ALL_ATTENTION_FUNCTIONS"):
+            registry = mod.ALL_ATTENTION_FUNCTIONS
+            
+            # If LXT replaced it with a raw dict, upgrade it to support .get_interface()
+            if type(registry) is dict:  
+                class LXTCompatRegistry(dict):
+                    def get_interface(self, attn_implementation, eager_attention_forward):
+                        return self.get(attn_implementation, eager_attention_forward)
                 
-                # If LXT replaced it with a raw dict, upgrade it to support .get_interface()
-                if type(registry) is dict:  
-                    class LXTCompatRegistry(dict):
-                        def get_interface(self, attn_implementation, eager_attention_forward):
-                            return self.get(attn_implementation, eager_attention_forward)
-                    
-                    setattr(mod, "ALL_ATTENTION_FUNCTIONS", LXTCompatRegistry(registry))
+                mod.ALL_ATTENTION_FUNCTIONS = LXTCompatRegistry(registry)
 
 # Overwrite LXT's function with our safe wrapper
 lxt.efficient.monkey_patch = safe_monkey_patch

@@ -1,15 +1,8 @@
-import time
-
 import numpy as np
-import torch
-from tqdm import tqdm
-import cv2
-from concurrent.futures import ThreadPoolExecutor
-
 import torch
 import torch.nn as nn
 import torchvision.transforms.functional as TF
-
+from tqdm import tqdm
 
 
 class UniversalEAGLEVisionAdaptor(nn.Module):
@@ -42,12 +35,11 @@ class UniversalEAGLEVisionAdaptor(nn.Module):
         and extracts the specific token probabilities.
         """
         # 1. EAGLE occasionally passes raw tensors from cv2; format to PIL if needed
-        if isinstance(image, torch.Tensor):
-            if image.shape[-1] == 3:
-                image_tensor = image[..., [2, 1, 0]]  # BGR → RGB
-                image_tensor = image_tensor.permute(2, 0, 1)
-                image_tensor = image_tensor.clamp(0, 255).byte()
-                image = TF.to_pil_image(image_tensor)
+        if isinstance(image, torch.Tensor) and image.shape[-1] == 3:
+            image_tensor = image[..., [2, 1, 0]]  # BGR → RGB
+            image_tensor = image_tensor.permute(2, 0, 1)
+            image_tensor = image_tensor.clamp(0, 255).byte()
+            image = TF.to_pil_image(image_tensor)
 
         # 2. Get base inputs using your wrapper's unified method
         # This replaces the hardcoded processor.apply_chat_template
@@ -109,7 +101,7 @@ class UniversalEAGLEVisionAdaptor(nn.Module):
         return returned_logits[0]
 
 
-class MLLMSubModularExplanationVision(object):
+class MLLMSubModularExplanationVision:
     """
     Black-box explanation of multimodal large language 
     model (MLLM) based on submodular subset selection.
@@ -130,7 +122,7 @@ class MLLMSubModularExplanationVision(object):
             lambda2 (float, optional): _description_. Defaults to 1.0.
             device (str, optional): _description_. Defaults to "cuda".
         """
-        super(MLLMSubModularExplanationVision, self).__init__()
+        super().__init__()
         # Parameters of the submodular
         self.MLLM = model
         self.preproccessing_function = preproccessing_function
@@ -170,18 +162,16 @@ class MLLMSubModularExplanationVision(object):
         return results
     
     def evaluation_maximun_sample(self, S_set):
-        timer = time.time()
+        # timer = time.time()
         # V_set_tem = np.array(self.V_set).astype(np.float32) # (51, 1365, 2048, 1)
         V_set_tensor = torch.from_numpy(np.array(self.V_set)).float().to(self.device)
         
-        # alpha_batch = (V_set_tem + self.refer_baseline[np.newaxis,...])#.astype(np.uint8) # (51, 1365, 2048, 1)
         alpha_batch = V_set_tensor + self.refer_baseline.unsqueeze(0)
         alpha_batch = alpha_batch.expand(-1, -1, -1, 3)
         
         # print("Stage 1 time comsume: {}".format(time.time()-timer))
         # timer = time.time()
         
-        # batch_input_images = alpha_batch * self.source_image[np.newaxis,...]    # (51, 1365, 2048, 1)
         source_tensor = self.source_tensor.unsqueeze(0).expand(alpha_batch.shape[0], -1, -1, -1)
         batch_input_images = alpha_batch * source_tensor    # torch.Size([51, 1365, 2048, 3])
         batch_input_images_reverse = (1 - alpha_batch) * source_tensor
@@ -191,10 +181,12 @@ class MLLMSubModularExplanationVision(object):
         
         with torch.no_grad():
             # Insertion
-            insertion_scores = self.MLLM_inference_batch_images(batch_input_images).to(torch.float32)
+            insertion_scores = self.MLLM_inference_batch_images(batch_input_images
+                                                                ).to(torch.float32)
             
             # Deletion
-            deletion_scores = self.MLLM_inference_batch_images(batch_input_images_reverse).to(torch.float32)
+            deletion_scores = self.MLLM_inference_batch_images(batch_input_images_reverse
+                                                               ).to(torch.float32)
             
             #Overall submodular score
             smdl_scores = self.lambda1 * insertion_scores + self.lambda2 * (1-deletion_scores)
@@ -202,17 +194,22 @@ class MLLMSubModularExplanationVision(object):
             arg_max_index = smdl_scores.argmax().cpu().item()
             
             # Save intermediate results
-            self.saved_json_file["insertion_score"].append(insertion_scores[arg_max_index].mean().cpu().numpy().item())
-            self.saved_json_file["insertion_word_score"].append(insertion_scores[arg_max_index].cpu().numpy().tolist())
+            self.saved_json_file["insertion_score"].append(insertion_scores[arg_max_index].mean()
+                                                           .cpu().numpy().item())
+            self.saved_json_file["insertion_word_score"].append(insertion_scores[arg_max_index]
+                                                                .cpu().numpy().tolist())
             
-            self.saved_json_file["deletion_score"].append(deletion_scores[arg_max_index].mean().cpu().numpy().item())
-            self.saved_json_file["deletion_word_score"].append(deletion_scores[arg_max_index].cpu().numpy().tolist())
+            self.saved_json_file["deletion_score"].append(deletion_scores[arg_max_index].mean()
+                                                          .cpu().numpy().item())
+            self.saved_json_file["deletion_word_score"].append(deletion_scores[arg_max_index]
+                                                               .cpu().numpy().tolist())
             
             self.saved_json_file["smdl_score"].append(smdl_scores[arg_max_index].cpu().item())
             
             # Update
             S_set.append(self.V_set[arg_max_index])
-            self.refer_baseline = self.refer_baseline + torch.from_numpy(self.V_set[arg_max_index]).float().to(self.device)
+            self.refer_baseline = self.refer_baseline + torch.from_numpy(self.V_set[arg_max_index]
+                                                                         ).float().to(self.device)
             del self.V_set[arg_max_index]
             
             self.saved_json_file["region_area"].append(
@@ -227,7 +224,7 @@ class MLLMSubModularExplanationVision(object):
         # self.refer_baseline = np.zeros_like(self.V_set[0]).astype(np.float32)
         self.refer_baseline = torch.zeros_like(torch.from_numpy(self.V_set[0]).float(), device=self.device)
         
-        for i in tqdm(range(self.saved_json_file["sub-region_number"])):
+        for _i in tqdm(range(self.saved_json_file["sub-region_number"])):
             S_set = self.evaluation_maximun_sample(S_set)
         
         self.saved_json_file["org_score"] = self.saved_json_file["insertion_word_score"][-1]
@@ -283,7 +280,7 @@ class EfficientMLLMSubModularExplanationVision(MLLMSubModularExplanationVision):
             lambda2 (float, optional): _description_. Defaults to 1.0.
             device (str, optional): _description_. Defaults to "cuda".
         """
-        super(EfficientMLLMSubModularExplanationVision, self).__init__(
+        super().__init__(
             model = model,
             preproccessing_function = preproccessing_function,
             lambda1 = lambda1,
@@ -338,22 +335,26 @@ class EfficientMLLMSubModularExplanationVision(MLLMSubModularExplanationVision):
 
         if len(S_set) == 0 or self.update_count % self.update_step == 0:
             # Positive samples search
-            source_tensor = self.source_tensor.unsqueeze(0).expand(alpha_batch.shape[0], -1, -1, -1)
+            source_tensor = self.source_tensor.unsqueeze(0).expand(alpha_batch.shape[0],
+                                                                   -1, -1, -1)
 
         else:
             alpha_batch = alpha_batch[:self.search_scope]
             # Positive samples search with scope
-            source_tensor = self.source_tensor.unsqueeze(0).expand(alpha_batch.shape[0], -1, -1, -1)
+            source_tensor = self.source_tensor.unsqueeze(0).expand(alpha_batch.shape[0],
+                                                                   -1, -1, -1)
 
         batch_input_images = alpha_batch * source_tensor    # torch.Size([51, 1365, 2048, 3])
         batch_input_images_reverse = (1 - alpha_batch) * source_tensor
         
         with torch.no_grad():
             # Insertion
-            insertion_scores = self.MLLM_inference_batch_images(batch_input_images).to(torch.float32)
+            insertion_scores = self.MLLM_inference_batch_images(batch_input_images
+                                                                ).to(torch.float32)
             
             # Deletion
-            deletion_scores = self.MLLM_inference_batch_images(batch_input_images_reverse).to(torch.float32)
+            deletion_scores = self.MLLM_inference_batch_images(batch_input_images_reverse
+                                                               ).to(torch.float32)
             
             #Overall submodular score
             smdl_scores = self.lambda1 * insertion_scores + self.lambda2 * (1-deletion_scores)
@@ -367,13 +368,15 @@ class EfficientMLLMSubModularExplanationVision(MLLMSubModularExplanationVision):
                 
                 # Update 0 -> Have been sorted
                 S_set.append(self.V_set[0])
-                self.refer_baseline = self.refer_baseline + torch.from_numpy(self.V_set[0]).float().to(self.device)
+                self.refer_baseline = self.refer_baseline \
+                    + torch.from_numpy(self.V_set[0]).float().to(self.device)
                 del self.V_set[0]
                 
             else:
                 # Update 0 -> Have been sorted
                 S_set.append(self.V_set[arg_max_index])
-                self.refer_baseline = self.refer_baseline + torch.from_numpy(self.V_set[arg_max_index]).float().to(self.device)
+                self.refer_baseline = self.refer_baseline \
+                    + torch.from_numpy(self.V_set[arg_max_index]).float().to(self.device)
                 del self.V_set[arg_max_index]
                 
             # Save intermediate results
@@ -395,7 +398,8 @@ class EfficientMLLMSubModularExplanationVision(MLLMSubModularExplanationVision):
                     insertion_scores[arg_min_index])
                 
                 S_set_opposite.append(self.V_set[-1])
-                self.refer_baseline_opposite = self.refer_baseline_opposite - torch.from_numpy(self.V_set[-1]).float().to(self.device)
+                self.refer_baseline_opposite = self.refer_baseline_opposite \
+                    - torch.from_numpy(self.V_set[-1]).float().to(self.device)
                 del self.V_set[-1]
                 
                 self.saved_json_file["region_area_oppose"].append(
@@ -407,9 +411,11 @@ class EfficientMLLMSubModularExplanationVision(MLLMSubModularExplanationVision):
             elif len(self.V_set) > self.pending_samples:
                 oppose_set_condidates = self.V_set[-self.pending_samples:]
                 
-                oppose_set_tensor = torch.from_numpy(np.array(oppose_set_condidates)).float().to(self.device)
+                oppose_set_tensor = torch.from_numpy(np.array(oppose_set_condidates)
+                                                     ).float().to(self.device)
                 
-                alpha_batch_opposite = self.refer_baseline_opposite.unsqueeze(0) - oppose_set_tensor    # This can be insertion
+                alpha_batch_opposite = self.refer_baseline_opposite.unsqueeze(0) \
+                    - oppose_set_tensor
                 alpha_batch_opposite = alpha_batch_opposite.expand(-1, -1, -1, 3)
                 
                 source_tensor = self.source_tensor.unsqueeze(0).expand(alpha_batch_opposite.shape[0], -1, -1, -1)
@@ -430,7 +436,8 @@ class EfficientMLLMSubModularExplanationVision(MLLMSubModularExplanationVision):
                     deletion_scores[arg_max_index_oppose])
                 
                 S_set_opposite.append(oppose_set_condidates[arg_max_index_oppose])
-                self.refer_baseline_opposite = self.refer_baseline_opposite - torch.from_numpy(oppose_set_condidates[arg_max_index_oppose]).float().to(self.device)
+                self.refer_baseline_opposite = self.refer_baseline_opposite - \
+                torch.from_numpy(oppose_set_condidates[arg_max_index_oppose]).float().to(self.device)
             
                 del self.V_set[-self.pending_samples + arg_max_index_oppose]
                 
@@ -446,29 +453,37 @@ class EfficientMLLMSubModularExplanationVision(MLLMSubModularExplanationVision):
         S_set_opposite = []
         
         # self.refer_baseline = np.zeros_like(self.V_set[0]).astype(np.float32)
-        self.refer_baseline = torch.zeros_like(torch.from_numpy(self.V_set[0]).float(), device=self.device)
-        self.refer_baseline_opposite = 1 - torch.zeros_like(torch.from_numpy(self.V_set[0]).float(), device=self.device)
+        self.refer_baseline = torch.zeros_like(torch.from_numpy(self.V_set[0]).float(),
+                                               device=self.device)
+        self.refer_baseline_opposite = 1 - torch.zeros_like(torch.from_numpy(self.V_set[0]).float(),
+                                                            device=self.device)
         
-        sub_images = torch.stack([self.source_tensor * self.refer_baseline, self.source_tensor * self.refer_baseline_opposite])
+        sub_images = torch.stack([self.source_tensor * self.refer_baseline,
+                                  self.source_tensor * self.refer_baseline_opposite])
         scores = self.MLLM_inference_batch_images(sub_images).to(torch.float32)
         
         self.saved_json_file["org_score"] = scores[1].cpu().numpy().tolist()
         self.saved_json_file["baseline_score"] = scores[0].cpu().numpy().tolist()
         
         self.update_count = 0
-        for i in tqdm(range(self.saved_json_file["sub-region_number"])):
+        for _i in tqdm(range(self.saved_json_file["sub-region_number"])):
             if len(self.V_set) == 1:
                 S_set = S_set + self.V_set
                 break
             S_set, S_set_opposite = self.evaluation_maximun_sample(S_set, S_set_opposite)
             self.update_count += 1
         
-        self.saved_json_file["insertion_score"] = self.saved_json_file["insertion_score"] + self.saved_json_file["insertion_score_oppose"][::-1] + [scores[1].cpu().mean().item()]
-        self.saved_json_file["deletion_score"] = self.saved_json_file["deletion_score"] + self.saved_json_file["deletion_score_oppose"][::-1] + [scores[0].cpu().mean().item()]
-        self.saved_json_file["insertion_word_score"] = self.saved_json_file["insertion_word_score"] + self.saved_json_file["insertion_word_score_oppose"][::-1] + [scores[1].cpu().numpy().tolist()]
-        self.saved_json_file["deletion_word_score"] = self.saved_json_file["deletion_word_score"] + self.saved_json_file["deletion_word_score_oppose"][::-1] + [scores[0].cpu().numpy().tolist()]
+        self.saved_json_file["insertion_score"] = self.saved_json_file["insertion_score"] + \
+        self.saved_json_file["insertion_score_oppose"][::-1] + [scores[1].cpu().mean().item()]
+        self.saved_json_file["deletion_score"] = self.saved_json_file["deletion_score"] + \
+        self.saved_json_file["deletion_score_oppose"][::-1] + [scores[0].cpu().mean().item()]
+        self.saved_json_file["insertion_word_score"] = self.saved_json_file["insertion_word_score"] + \
+        self.saved_json_file["insertion_word_score_oppose"][::-1] + [scores[1].cpu().numpy().tolist()]
+        self.saved_json_file["deletion_word_score"] = self.saved_json_file["deletion_word_score"] + \
+        self.saved_json_file["deletion_word_score_oppose"][::-1] + [scores[0].cpu().numpy().tolist()]
         
-        self.saved_json_file["region_area"] = self.saved_json_file["region_area"] + self.saved_json_file["region_area_oppose"][::-1] + [1.]
+        self.saved_json_file["region_area"] = self.saved_json_file["region_area"] \
+            + self.saved_json_file["region_area_oppose"][::-1] + [1.]
         S_set = np.concatenate((S_set, S_set_opposite[::-1]))
         
         return S_set
@@ -493,7 +508,8 @@ class EfficientMLLMSubModularExplanationVision(MLLMSubModularExplanationVision):
         self.V_set = V_set.copy()
         
         Submodular_Subset = self.get_merge_set()
-        self.saved_json_file["smdl_score"] = (np.array(self.saved_json_file["insertion_score"]) + 1 - np.array(self.saved_json_file["deletion_score"])).tolist()
+        self.saved_json_file["smdl_score"] = (np.array(self.saved_json_file["insertion_score"]) +
+                                              1 - np.array(self.saved_json_file["deletion_score"])).tolist()
         
         return Submodular_Subset, self.saved_json_file
 

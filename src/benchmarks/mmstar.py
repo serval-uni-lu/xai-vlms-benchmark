@@ -5,12 +5,12 @@ import time
 import traceback
 
 import torch
-from tqdm import tqdm
 import transformers
 from packaging.version import Version
+from tqdm import tqdm
 
 if Version(transformers.__version__) > Version("5.10"):
-    import src.utils.lxt_shim
+    pass
 
 from src.datasets.factory import get_dataloader
 from src.explainers.factory import get_explainer

@@ -1,10 +1,7 @@
-from packaging import version
 import transformers
-from lxt.efficient.patches import (
-    patch_attention, 
-    wrap_attention_forward, 
-    check_already_patched
-)
+from lxt.efficient.patches import check_already_patched, patch_attention, wrap_attention_forward
+from packaging import version
+
 
 def safe_patch_attention(module):
     """

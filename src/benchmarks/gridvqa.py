@@ -1,31 +1,32 @@
 import argparse
 import contextlib
 import os
+import re
 import time
 import traceback
-import numpy as np
-from sklearn.metrics import average_precision_score
 
+import numpy as np
 import torch
-from tqdm import tqdm
-from torch.utils.data import DataLoader
 import transformers
 from packaging.version import Version
+from sklearn.metrics import average_precision_score
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 if Version(transformers.__version__) > Version("5.10"):
-    import src.utils.lxt_shim
+    pass
 
 # from src.datasets.factory import get_dataloader
+from src.datasets.gridvqa import GridQAMatchedDataset
 from src.explainers.factory import get_explainer
+from src.explainers.vqa_oracle import GridVQAAntiOracleExplainer, GridVQAOracleExplainer
 from src.metrics import FaithfulnessMetric
-from src.models.factory import load_vlm
-from src.utils.xai_utils import get_processed_indices, load_yaml, save_to_jsonl
 
 # Import your custom Toy Model and Oracle Explainers
 from src.models import LlavaWrapper
-from src.explainers.vqa_oracle import GridVQAAntiOracleExplainer, GridVQAOracleExplainer
+from src.models.factory import load_vlm
 from src.models.toy_vlm import ToyGridVLM
-from src.datasets.gridvqa import GridQAMatchedDataset
+from src.utils.xai_utils import get_processed_indices, load_yaml, save_to_jsonl
 
 # =====================================================================
 # 1. ANTI-ORACLE & PROXIMITY EVALUATOR
@@ -52,16 +53,20 @@ def get_dataloader(model_wrapper):
     return dl
 
 
-import re
+
 
 # Added "binary" and expanded common concepts
 VQA_DOMAINS = {
     "binary": ["yes", "no"],
-    "color": ["red", "blue", "green", "yellow", "purple", "orange", "black", "white", "gray", "brown", "pink"],
-    "shape": ["triangle", "square", "rectangle", "pentagon", "hexagon", "circle", "star", "cross", "cylinder", "cube", "sphere"],
+    "color": ["red", "blue", "green", "yellow", "purple", "orange", "black",
+              "white", "gray", "brown", "pink"],
+    "shape": ["triangle", "square", "rectangle", "pentagon", "hexagon",
+              "circle", "star", "cross", "cylinder", "cube", "sphere"],
     "count_words": [
-        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", 
-        "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", 
+        "zero", "one", "two", "three", "four", "five", "six", "seven",
+        "eight", "nine", "ten", 
+        "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+        "seventeen", "eighteen", "nineteen", "twenty", 
         "none"
     ]
 }
@@ -151,16 +156,17 @@ def parse_decision_token(
     target_end_idx = target_start_idx + len(target_lower)
     
     # 3. Find the *first* meaningful token that falls inside this character span
-    for i, (start, end, tid, text) in enumerate(token_char_spans):
+    for i, (start, end, _tid, text) in enumerate(token_char_spans):
         # Check for intersection between token span and target span
-        if max(start, target_start_idx) < min(end, target_end_idx):
-            if text.strip() != "":  # Ignore purely whitespace tokens
-                return i, text
+        if max(start, target_start_idx) < min(end, target_end_idx) \
+            and text.strip() != "":  # Ignore purely whitespace tokens
+            return i, text
                 
     return -1, None
 
 
-def evaluate_explainer_proximity(oracle_attr: torch.Tensor, explainer_attr: torch.Tensor) -> dict[str, float]:
+def evaluate_explainer_proximity(oracle_attr: torch.Tensor,
+                                explainer_attr: torch.Tensor) -> dict[str, float]:
     """Measures how closely a real heatmap matches the Oracle mask."""
     y_true = oracle_attr.detach().cpu().flatten().numpy()
     y_scores = explainer_attr.detach().cpu().flatten().numpy()
@@ -171,7 +177,7 @@ def evaluate_explainer_proximity(oracle_attr: torch.Tensor, explainer_attr: torc
         ap_score = 0.0
 
     K = int(y_true.sum())
-    if K == 0 or K == len(y_true):
+    if K == 0 or len(y_true) == K:
         iou = 0.0
     else:
         top_k_indices = np.argsort(y_scores)[-K:]
@@ -193,7 +199,8 @@ def run_benchmark(args):
     dataset_name = args.dataset_name
     model_config = load_yaml(args.model_config)
 
-    explainer_paths = [exp if exp.endswith(".yaml") else f"configs/explainers/{exp}.yaml" for exp in args.explainers]
+    explainer_paths = [exp if exp.endswith(".yaml") \
+                       else f"configs/explainers/{exp}.yaml" for exp in args.explainers]
     explainer_configs = [load_yaml(path) for path in explainer_paths]
 
     output_dir = os.path.join(args.output_dir, model_config["vlm_type"], f"{dataset_name}")
@@ -256,8 +263,10 @@ def run_benchmark(args):
             # INNER LOOP: Evaluate Dataset Samples
             # ---------------------------------------------------------
             for idx, sample in enumerate(tqdm(dl, desc=f"Evaluating {explainer_name}")):
-                if args.max_samples is not None and idx >= args.max_samples: break
-                if idx in processed_indices: continue
+                if args.max_samples is not None and idx >= args.max_samples:
+                    break
+                if idx in processed_indices:
+                    continue
 
                 #constraint = "" if "qwen" in model_config["vlm_type"] else "\nAnswer"
                 constraint = ""
@@ -317,11 +326,13 @@ def run_benchmark(args):
                     faith_sample = {"image": img, "text": question}
                     
                     oracle_faith = faith_metrics.compute(toy_wrap, faith_sample, 
-                        {"inputs": inputs, "target_ids": pred_results["new_ids"].unsqueeze(0), "pixel_attribution": oracle_img, "token_attribution": oracle_txt},
+                        {"inputs": inputs, "target_ids": pred_results["new_ids"].unsqueeze(0),
+                         "pixel_attribution": oracle_img, "token_attribution": oracle_txt},
                         compute_syn_only=False)
                     
                     anti_faith = faith_metrics.compute(toy_wrap, faith_sample, 
-                        {"inputs": inputs, "target_ids": pred_results["new_ids"].unsqueeze(0), "pixel_attribution": anti_img, "token_attribution": anti_txt},
+                        {"inputs": inputs, "target_ids": pred_results["new_ids"].unsqueeze(0),
+                        "pixel_attribution": anti_img, "token_attribution": anti_txt},
                         compute_syn_only=False)
 
 
@@ -400,7 +411,8 @@ def run_benchmark(args):
             continue
         finally:
             if explainer is not None and hasattr(explainer, "cleanup"):
-                with contextlib.suppress(Exception): explainer.cleanup()
+                with contextlib.suppress(Exception):
+                    explainer.cleanup()
             torch.cuda.empty_cache()
 
 

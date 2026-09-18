@@ -8,25 +8,24 @@ from typing import Any
 
 import numpy as np
 import torch
+import transformers
+from packaging.version import Version
 from PIL import ImageFilter
 from torch import Tensor
 from tqdm import tqdm
-import transformers
-from packaging.version import Version
 
 if Version(transformers.__version__) > Version("5.10"):
-    import src.utils.lxt_shim
+    pass
 
 # --- ABSTRACTED FACTORIES & UTILS ---
 from src.datasets.factory import get_dataloader
 from src.explainers.factory import get_explainer
-from src.metrics.shap_sii import eval_sii_auc_with_class, eval_pure_sii_with_class
+from src.metrics.shap_sii import eval_pure_sii_with_class
 from src.models.factory import load_vlm
 from src.utils.faithfulness_utils import (
     _reshape_pixels_back_faithfulness,
     _reshape_pixels_faithfulness,
     get_most_important_tokens_multimodal,
-    get_text_mask,
     make_blur_baseline,
     score_output,
 )
@@ -76,10 +75,9 @@ def build_object_semantic_mask(input_ids, tokenizer, object_name):
     # 3. Flag any token whose character span overlaps with the object's character span
     for i, (start, end, text) in enumerate(token_char_spans):
         # Math check for overlapping intervals
-        if max(start, target_start) < min(end, target_end):
+        if max(start, target_start) < min(end, target_end) and text.strip() != "":
             # Exclude tokens that are purely whitespace (saves Shapley budget)
-            if text.strip() != "":
-                mask[0, i] = True
+            mask[0, i] = True
                 
     # Quick debug print so you can verify it caught the right subwords
     active_tokens = [tokenizer.decode([ids_list[i]]) for i in range(len(ids_list)) if mask[0, i]]
@@ -517,8 +515,7 @@ def run_evaluation(args):
                     pred_results = model_wrapper.predict(inputs, return_logits=True)
 
                     # Get text only mask
-                    model_type = getattr(model_wrapper.model.config, "model_type", "").lower()
-                    #semantic_mask = get_text_mask(inputs["input_ids"], model_type, model_wrapper.processor.tokenizer)
+                    # model_type = getattr(model_wrapper.model.config, "model_type", "").lower()
                     semantic_mask = build_object_semantic_mask(inputs["input_ids"],
                                            model_wrapper.processor.tokenizer,
                                             sample["object_name"])

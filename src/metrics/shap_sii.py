@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import shapiq
@@ -625,11 +625,14 @@ def eval_pure_sii_with_class(
     model_type = getattr(model.model.config, "model_type", "").lower()
 
     if "internvl" in model_type:
-        if pixel_values.ndim == 4: pixel_values = pixel_values.unsqueeze(0)
+        if pixel_values.ndim == 4:
+            pixel_values = pixel_values.unsqueeze(0)
     elif "qwen" in model_type:
-        if pixel_values.ndim == 2: pixel_values = pixel_values.unsqueeze(0)
+        if pixel_values.ndim == 2:
+            pixel_values = pixel_values.unsqueeze(0)
     else:
-        if pixel_values.ndim == 3: pixel_values = pixel_values.unsqueeze(0)
+        if pixel_values.ndim == 3:
+            pixel_values = pixel_values.unsqueeze(0)
 
     ndim = pixel_values.ndim
     origin_shape = pixel_values.shape
@@ -652,7 +655,8 @@ def eval_pure_sii_with_class(
         raise ValueError("pixel_attribution must be 2D, 3D, or 4D.")
 
     if semantic_mask is not None:
-        if semantic_mask.ndim == 1: semantic_mask = semantic_mask.unsqueeze(0)
+        if semantic_mask.ndim == 1:
+            semantic_mask = semantic_mask.unsqueeze(0)
         valid_mask = semantic_mask.to(device).clone()
     else:
         valid_mask = torch.ones_like(input_ids, dtype=torch.bool)

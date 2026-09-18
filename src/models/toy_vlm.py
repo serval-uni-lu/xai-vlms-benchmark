@@ -1,7 +1,9 @@
 import math
+from types import SimpleNamespace
+
 import torch
 import torch.nn as nn
-from types import SimpleNamespace
+
 
 class MockGridConfig:
     # Telling your pipeline this is LLaVA forces it to use standard 4D image logic
@@ -109,24 +111,6 @@ class ToyGridVLM(nn.Module):
         for tid in self.target_ids:
             logits[:, :, tid] = target_logit
 
-        # # =========================================================
-        # # 🚨 DEBUG PRINT BLOCK 🚨 
-        # # =========================================================
-        # print("\n" + "="*55)
-        # print("DEBUG: TOY MODEL FORWARD PASS")
-        # print(f"Target IDs tracking: {self.target_ids}")
-        
-        # if input_ids is not None:
-        #     print(f"Input IDs Shape: {input_ids.shape} | GT Text Mask: {self.gt_text_mask.shape}")
-        #     print(f"Text Score (T) : {text_score:.4f} (Active GT Tokens: {true_tokens_present}/{total_true_tokens})")
-        
-        # if pixel_values is not None:
-        #     print(f"Pixels Shape   : {pixel_values.shape} | Orig Pixels: {self.orig_pixel_values.shape}")
-        #     print(f"Visual Score(V): {visual_score:.4f} (Active GT Pixels: {true_patches_present}/{total_true_pixels})")
-            
-        # print(f"Joint Synergy  : {synergy:.4f}")
-        # print(f"Target Logit   : {target_logit:.4f}")
-        # print("="*55 + "\n")
                     
         return SimpleNamespace(logits=logits)
 

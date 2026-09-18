@@ -1,9 +1,10 @@
-from dataclasses import asdict, dataclass
-import re
 import unicodedata
+from dataclasses import asdict, dataclass
+
 import cv2
 import numpy as np
 import torch
+
 
 @dataclass
 class TextSpan:
@@ -23,10 +24,13 @@ def _is_cjk(char):
             0x3040 <= code <= 0x30FF or 0xAC00 <= code <= 0xD7AF)
 
 def _char_group(char):
-    if char.isspace(): return "space"
-    if _is_cjk(char): return "cjk"
+    if char.isspace():
+        return "space"
+    if _is_cjk(char):
+        return "cjk"
     category = unicodedata.category(char)
-    if category[0] in {"L", "N"} or char == "_": return "word"
+    if category[0] in {"L", "N"} or char == "_":
+        return "word"
     return "punct"
 
 def split_readable_spans(text):
@@ -46,9 +50,12 @@ def split_readable_spans(text):
     return spans
 
 def _trim_span(text, start, end):
-    while start < end and text[start].isspace(): start += 1
-    while end > start and text[end - 1].isspace(): end -= 1
-    if start >= end: return None
+    while start < end and text[start].isspace():
+        start += 1
+    while end > start and text[end - 1].isspace():
+        end -= 1
+    if start >= end:
+        return None
     return text[start:end], start, end
 
 def split_sentence_spans(text):
@@ -66,30 +73,38 @@ def split_sentence_spans(text):
             sentence_start = index
         if char == "\n":
             span = _trim_span(text, sentence_start, index)
-            if span is not None: spans.append(span)
+            if span is not None:
+                spans.append(span)
             sentence_start = None
         elif char in sentence_end_chars:
             end = index + 1
-            while end < len(text) and text[end] in closing_chars: end += 1
+            while end < len(text) and text[end] in closing_chars:
+                end += 1
             span = _trim_span(text, sentence_start, end)
-            if span is not None: spans.append(span)
+            if span is not None:
+                spans.append(span)
             sentence_start = None
             index = end - 1
         index += 1
     if sentence_start is not None:
         span = _trim_span(text, sentence_start, len(text))
-        if span is not None: spans.append(span)
+        if span is not None:
+            spans.append(span)
     return spans
 
 def split_text_spans(text, granularity="readable"):
-    if granularity == "readable": return split_readable_spans(text)
-    if granularity == "sentence": return split_sentence_spans(text)
-    if granularity == "message": return [_trim_span(text, 0, len(text))] if _trim_span(text, 0, len(text)) else []
+    if granularity == "readable":
+        return split_readable_spans(text)
+    if granularity == "sentence":
+        return split_sentence_spans(text)
+    if granularity == "message":
+        return [_trim_span(text, 0, len(text))] if _trim_span(text, 0, len(text)) else []
     raise ValueError(f"Unsupported text span granularity: {granularity}")
 
 def _role_content(message):
     content = message.get("content", "")
-    if isinstance(content, str): return content
+    if isinstance(content, str):
+        return content
     if isinstance(content, list):
         parts = []
         for item in content:
@@ -103,11 +118,14 @@ def _locate_message_ranges(rendered_text, messages):
     cursor = 0
     for message in messages:
         role = message.get("role", "")
-        if role not in {"system", "user"}: continue
+        if role not in {"system", "user"}:
+            continue
         content = _role_content(message)
-        if not content: continue
+        if not content:
+            continue
         start = rendered_text.find(content, cursor)
-        if start < 0: start = rendered_text.find(content)
+        if start < 0:
+            start = rendered_text.find(content)
         if start < 0:
             raise ValueError(f"Could not locate {role!r} content in the rendered chat template.")
         end = start + len(content)
@@ -175,10 +193,9 @@ def build_text_span_masks_from_inputs(
     Uses Cumulative Decoding to guarantee perfect token-to-character alignment.
     """
     # 1. Flatten tensor to a 1D list
-    if isinstance(input_ids, torch.Tensor):
-        input_ids_list = input_ids.squeeze().tolist()
-    else:
-        input_ids_list = input_ids
+    input_ids_list = input_ids.squeeze().tolist() if isinstance(input_ids, torch.Tensor) \
+        else input_ids
+
 
     # 2. Decode the full sequence to find the exact starting position of the target text
     decoded_text = processor.tokenizer.decode(input_ids_list, skip_special_tokens=False)

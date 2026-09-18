@@ -1,11 +1,10 @@
-import numpy as np
 from typing import Any
-import torch
-from tqdm import tqdm
 
+import numpy as np
 import torch
 import torch.nn as nn
-import torchvision.transforms.functional as TF
+from tqdm import tqdm
+
 
 class UniversalEAGLETextAdaptor(nn.Module):
     """
@@ -125,7 +124,7 @@ class UniversalEAGLETextAdaptor(nn.Module):
         return batched_probabilities[0] if single_input else batched_probabilities
 
 
-class EfficientLLMSubModularExplanationText(object):
+class EfficientLLMSubModularExplanationText:
     """Black-box submodular attribution over text token-span masks."""
 
     def __init__(

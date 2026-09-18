@@ -1,7 +1,8 @@
-import torch
-import torch.nn.functional as F
 import numpy as np
+import torch
+
 from src.explainers.base import BaseExplainer
+
 
 class GridVQAOracleExplainer(BaseExplainer):
     """
@@ -116,19 +117,24 @@ class GridVQAOracleExplainer(BaseExplainer):
                 else:
                     color = str(obj.get('color', '')).lower().strip()
                     shape = str(obj.get('shape', '')).lower().strip()
-                    if color and shape: search_terms.add(f"{color} {shape}")
-                    if color: search_terms.add(color)
-                    if shape: search_terms.add(shape)
+                    if color and shape:
+                        search_terms.add(f"{color} {shape}")
+                    if color:
+                        search_terms.add(color)
+                    if shape:
+                        search_terms.add(shape)
             else:
                 search_terms.add(str(obj).lower().strip())
                 
         for term in search_terms:
-            if not term: continue
+            if not term:
+                continue
                 
             start_idx = 0
             while True:
                 target_start = prompt_lower.find(term, start_idx)
-                if target_start == -1: break
+                if target_start == -1:
+                    break
                 target_end = target_start + len(term)
                 
                 for i, (start, end, text) in enumerate(token_char_spans):

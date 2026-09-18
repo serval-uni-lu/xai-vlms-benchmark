@@ -12,9 +12,7 @@ from lxt.efficient.patches import (
     gated_mlp_forward,
     layer_norm_forward,
     non_linear_forward,
-    patch_attention,
     patch_method,
-    rms_norm_forward,
 )
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 

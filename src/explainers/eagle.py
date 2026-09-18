@@ -1,18 +1,20 @@
-from typing import Any, Optional
 import copy
+from typing import Any
 
 import cv2
-import torch
 import numpy as np
-from PIL import Image
+import torch
 import torch.nn.functional as F
+from PIL import Image
 from torchvision import transforms
 
-from src.models import BaseVLMWrapper
 from src.explainers import BaseExplainer
-from .eagle_utils.text_attribution import UniversalEAGLETextAdaptor, EfficientLLMSubModularExplanationText
-from .eagle_utils.pixel_attribution import UniversalEAGLEVisionAdaptor, EfficientMLLMSubModularExplanationVision
-from .eagle_utils.utils import build_text_span_masks_from_inputs, SubRegionDivision
+from src.models import BaseVLMWrapper
+
+from .eagle_utils.pixel_attribution import EfficientMLLMSubModularExplanationVision, UniversalEAGLEVisionAdaptor
+from .eagle_utils.text_attribution import EfficientLLMSubModularExplanationText, UniversalEAGLETextAdaptor
+from .eagle_utils.utils import SubRegionDivision, build_text_span_masks_from_inputs
+
 
 class EagleExplainer(BaseExplainer):
     """
@@ -23,8 +25,8 @@ class EagleExplainer(BaseExplainer):
 
     def __init__(self, model_wrapper: BaseVLMWrapper,
                 division_number: int = 50,
-                text_kwargs: Optional[dict[str, Any]] = None,
-                vision_kwargs: Optional[dict[str, Any]] = None,
+                text_kwargs: dict[str, Any] | None = None,
+                vision_kwargs: dict[str, Any] | None = None,
                 ):
         """
         Args:
@@ -53,10 +55,8 @@ class EagleExplainer(BaseExplainer):
             target_indices = [target_indices]
         target_indices_np = np.array(target_indices)
 
-        if isinstance(image, torch.Tensor):
-            image_pil = transforms.ToPILImage()(image.cpu())
-        else:
-            image_pil = image
+        
+        image_pil = transforms.ToPILImage()(image.cpu()) if isinstance(image, torch.Tensor) else image
 
         # 2. Extract base inputs and generated sequence
         base_inputs = self.wrapper.get_inputs(image=image_pil, text=text)
@@ -203,11 +203,9 @@ class EagleExplainer(BaseExplainer):
         
         value_list_1 = np.array(json_file["smdl_score"])
         
-        # value_list_2 = np.array(
-        #     [1 - np.mean(json_file["org_score"]) + np.mean(json_file["baseline_score"])] + json_file["smdl_score"][:-1]
-        # )
         value_list_2 = np.array(
-            [np.mean(1 - np.array(json_file["org_score"]) + np.array(json_file["baseline_score"]))] + json_file["smdl_score"][:-1]
+            [np.mean(1 - np.array(json_file["org_score"]) \
+                     + np.array(json_file["baseline_score"]))] + json_file["smdl_score"][:-1]
         )
         
         # value_list = np.exp((value_list_1 - value_list_2)/1)
@@ -215,12 +213,10 @@ class EagleExplainer(BaseExplainer):
         
         values = []
         value = 0
-        i = 0
-        for smdl_single_mask, smdl_value in zip(S_set, value_list):
+        for _i, (smdl_single_mask, smdl_value) in enumerate(zip(S_set, value_list, strict=True)):
             value = value - abs(smdl_value)
             single_mask[smdl_single_mask==1] = value
             values.append(value)
-            i+=1
         attribution_map = single_mask - single_mask.min()
         attribution_map = attribution_map / attribution_map.max()
         
@@ -280,10 +276,9 @@ class EagleExplainer(BaseExplainer):
         pixel_values = inputs["pixel_values"]
 
         # 1. Add batch and channel dimensions for PyTorch interpolation -> (1, 1, H, W)
-        if img_attrs_orig.dim() == 2:
-            heatmap_4d = img_attrs_orig.unsqueeze(0).unsqueeze(0)
-        else:
-            heatmap_4d = img_attrs_orig
+        heatmap_4d = img_attrs_orig.unsqueeze(0).unsqueeze(0) \
+            if img_attrs_orig.dim() == 2 else img_attrs_orig
+
 
         # ==========================================
         # CASE A: Standard VLM (e.g., LLaVA)

@@ -11,13 +11,7 @@ from transformers import (
     Qwen3_5ForConditionalGeneration,
 )
 
-from src.models import (
-    BaseVLMWrapper,
-    InternVLWrapper,
-    LlavaWrapper,
-    QwenVLWrapper,
-    Qwen3_5Wrapper
-)
+from src.models import BaseVLMWrapper, InternVLWrapper, LlavaWrapper, Qwen3_5Wrapper, QwenVLWrapper
 
 
 class VLMType:

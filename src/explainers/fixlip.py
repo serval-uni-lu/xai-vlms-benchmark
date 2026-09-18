@@ -1,17 +1,15 @@
-from typing import Dict, Any, Optional
 import time
+from typing import Any
 
-import numpy as np
 import shapiq
 import torch
 
-from src.models import BaseVLMWrapper
 from src.explainers import BaseExplainer
 from src.explainers.fixlip_utils.fixlip import FIxLIP
 from src.explainers.fixlip_utils.utils import convert_iv_to_first_order
 from src.explainers.fixlip_utils.vlm_game import GenerativeVLMGame
+from src.models import BaseVLMWrapper
 from src.utils.xai_utils import align_llm_visuals_to_pixels
-
 
 
 class FIxLIPExplainer(BaseExplainer):
@@ -34,7 +32,7 @@ class FIxLIPExplainer(BaseExplainer):
         p_weight: float = 0.5,
         group_text_by_word: bool = True,
         seed: int = 42,
-        proxy_xgboost_kwargs: Optional[Dict[str, Any]] = None
+        proxy_xgboost_kwargs: dict[str, Any] | None = None
     ):
         super().__init__(model_wrapper)
         self.budget = budget
@@ -55,13 +53,13 @@ class FIxLIPExplainer(BaseExplainer):
         self,
         image,
         text: str,
-        target_indices: Optional[int | list[int]] = None,
+        target_indices: int | list[int] | None = None,
         **kwargs,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         
         # 1. Prepare Inputs using the wrapper's processor
         inputs = self.wrapper.get_inputs(image, text)
-        pixel_values_shape = inputs["pixel_values"].shape
+        # pixel_values_shape = inputs["pixel_values"].shape
 
         # Retrieve or generate predictions
         pred_results = kwargs.get("pred_results")

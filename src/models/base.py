@@ -5,9 +5,8 @@ from typing import Any, Literal
 import torch
 import torch.nn as nn
 from transformers import (
-    PreTrainedModel,
     LlavaForConditionalGeneration,
-    AutoModelForImageTextToText,
+    PreTrainedModel,
     Qwen2_5_VLForConditionalGeneration,
     Qwen3_5ForConditionalGeneration,
 )

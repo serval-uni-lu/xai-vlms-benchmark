@@ -8,7 +8,6 @@ import torch
 from tqdm import tqdm
 
 # Ensure you import the new function we built!
-import src.utils.lxt_shim
 from src.datasets.factory import get_dataloader
 from src.explainers.factory import get_explainer
 from src.metrics import FaithfulnessMetric
@@ -113,7 +112,8 @@ def run_benchmark(args):
                 if model_config["name"] == "llava":
                     constraint = "\nAnswer"
                 else:
-                    constraint = "\nAnswer directly with only the letter inside parentheses, and nothing else. \nAnswer:"
+                    constraint = "\nAnswer directly with only the letter inside parentheses, \
+                        and nothing else. \nAnswer:"
                 
                 img = sample["image"]
                 question = sample["question"] + constraint
@@ -130,7 +130,8 @@ def run_benchmark(args):
                         full_text = full_text[0]
 
                     # 2. Identify the Decision Token
-                    decision_idx, decision_token_str = find_mcvqa_token_index(pred_results["new_ids"], tokenizer=tok)
+                    decision_idx, decision_token_str = find_mcvqa_token_index(pred_results["new_ids"],
+                                                                              tokenizer=tok)
 
                     total_processed_this_run += 1
 
@@ -177,7 +178,10 @@ def run_benchmark(args):
                     faith_sample = {"image": img, "text": question}
                     
                     for k, metric_evaluator in faith_metrics_dict.items():
-                        faith_scores = metric_evaluator.compute(model_wrapper, faith_sample, xai_result, compute_syn_only=True)
+                        faith_scores = metric_evaluator.compute(model_wrapper,
+                                                                faith_sample,
+                                                                xai_result,
+                                                                compute_syn_only=True)
                         
                         # Add scores to log_dict with a prefix so they don't overwrite each other
                         for metric_name, score_value in faith_scores.items():

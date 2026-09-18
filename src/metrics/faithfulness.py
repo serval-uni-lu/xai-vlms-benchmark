@@ -114,7 +114,7 @@ class FaithfulnessMetric(BaseMetric):
         elif tok_attr is not None:
             num_tokens = tok_attr.shape[0]
 
-        image = sample.get("image", None)
+        image = sample.get("image")
         # question = str(sample.get("question"))
         blur_baseline = None
         if image is not None:
