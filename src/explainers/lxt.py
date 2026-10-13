@@ -1,4 +1,3 @@
-
 import torch
 import zennit.rules as z_rules
 from lxt.efficient import monkey_patch, monkey_patch_zennit
@@ -45,7 +44,7 @@ class LXTExplainer(BaseExplainer):
         module_root = self.wrapper.get_root_module()
         patch_dict = self.wrapper.get_patch_map()
         model_id = self.wrapper.model.config.name_or_path
-        vlm_type = self.wrapper.model.config.model_type
+        # vlm_type = self.wrapper.model.config.model_type
 
         # --- IDEMPOTENCY CHECK ---
         # We check a flag on the module itself to see if we already touched it
@@ -71,9 +70,7 @@ class LXTExplainer(BaseExplainer):
             # Retrieve the stored YAML config
             stored_config = getattr(self.wrapper, "model_config", None)
             if stored_config is None:
-                raise RuntimeError(
-                    "LXT requires model_config to be stored on the wrapper to reload."
-                )
+                raise RuntimeError("LXT requires model_config to be stored on the wrapper to reload.")
 
             del self.wrapper
             self.wrapper = load_vlm(
@@ -88,9 +85,7 @@ class LXTExplainer(BaseExplainer):
         finally:
             print("[!] Exiting Patch Context.")
             print("[!] WARNING: Python classes are still modified in memory.")
-            print(
-                "[!] It is highly recommended to restart the kernel/process before running a different XAI method."
-            )
+            print("[!] It is highly recommended to restart the kernel/process before running a different XAI method.")
             # Unlike hooks, monkey patching classes is very hard to undo robustly
             # without reloading the 'transformers' library entirely.
 
@@ -217,22 +212,11 @@ class LXTExplainer(BaseExplainer):
 
             # LRP Rule: Relevance = Gradient * Activation
             if "qwen" in model_type:
-                rel_img = (
-                    (pixel_values.grad * pixel_values).float().sum(-1).detach().cpu()
-                )
+                rel_img = (pixel_values.grad * pixel_values).float().sum(-1).detach().cpu()
             elif "internvl" in model_type:
-                rel_img = (
-                    (pixel_values.grad * pixel_values).float().sum(-3).detach().cpu()
-                )
+                rel_img = (pixel_values.grad * pixel_values).float().sum(-3).detach().cpu()
             elif "llava" in model_type:
-                rel_img = (
-                    (pixel_values.grad * pixel_values)
-                    .float()
-                    .sum(-3)
-                    .sum(0)
-                    .detach()
-                    .cpu()
-                )
+                rel_img = (pixel_values.grad * pixel_values).float().sum(-3).sum(0).detach().cpu()
             else:
                 raise ValueError(f"Unexpected pixel_values shape for {model_type}")
 
@@ -260,9 +244,7 @@ class LXTExplainer(BaseExplainer):
                 )
 
                 gen_logits = log_logits[:, t_start - 1 : t_end - 1, :]
-                gathered_logits = gen_logits[
-                    0, torch.arange(gen_len), generated_token_ids
-                ]
+                gathered_logits = gen_logits[0, torch.arange(gen_len), generated_token_ids]
 
                 # Backpropagate just this specific token
                 target_logit = gathered_logits[idx]
@@ -270,36 +252,15 @@ class LXTExplainer(BaseExplainer):
 
                 # LRP Rule: Relevance = Gradient * Activation
                 if "qwen" in model_type:
-                    rel_img = (
-                        (pixel_values.grad * pixel_values)
-                        .float()
-                        .sum(-1)
-                        .detach()
-                        .cpu()
-                    )
+                    rel_img = (pixel_values.grad * pixel_values).float().sum(-1).detach().cpu()
                 elif "internvl" in model_type:
-                    rel_img = (
-                        (pixel_values.grad * pixel_values)
-                        .float()
-                        .sum(-3)
-                        .detach()
-                        .cpu()
-                    )
+                    rel_img = (pixel_values.grad * pixel_values).float().sum(-3).detach().cpu()
                 elif "llava" in model_type:
-                    rel_img = (
-                        (pixel_values.grad * pixel_values)
-                        .float()
-                        .sum(-3)
-                        .sum(0)
-                        .detach()
-                        .cpu()
-                    )
+                    rel_img = (pixel_values.grad * pixel_values).float().sum(-3).sum(0).detach().cpu()
                 else:
                     raise ValueError(f"Unexpected pixel_values shape for {model_type}")
 
-                rel_text = (
-                    (text_embeds.grad * text_embeds).float().sum(-1).detach().cpu()
-                )
+                rel_text = (text_embeds.grad * text_embeds).float().sum(-1).detach().cpu()
 
                 token_attributions.append(rel_text)
                 pixel_attributions.append(rel_img)
@@ -327,3 +288,4 @@ class LXTExplainer(BaseExplainer):
         relevance_text = relevance_text[:, :t_start]
 
         return relevance_text, relevance_img
+

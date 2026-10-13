@@ -23,7 +23,9 @@ dependencies = [
     "ruff>=0.15.8",
     "seaborn>=0.13.2",
     "sentence-transformers>=5.2.2",
+    "shapiq==1.5.1",
     "statsmodels>=0.14.6",
+    "transformers==5.12.1",
     "wandb>=0.25.0",
     "xgboost>=3.2.0",
 ]
@@ -32,4 +34,6 @@ dependencies = [
 dev = [
     "ipykernel>=7.1.0",
     "jupyterlab>=4.4.10",
+    "pytest>=9.0.3",
+    "ty>=0.0.35",
 ]

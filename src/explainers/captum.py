@@ -81,9 +81,7 @@ class CaptumExplainer(BaseExplainer):
         indices_to_compute = [idx for idx in indices_to_compute if idx < seq_len]
 
         if not indices_to_compute:
-            print(
-                "[!] Warning: No valid target_indices found within the generated sequence length."
-            )
+            print("[!] Warning: No valid target_indices found within the generated sequence length.")
 
         token_attrs = []
         pixel_attrs = []
@@ -102,9 +100,7 @@ class CaptumExplainer(BaseExplainer):
                 current_input_ids = torch.cat([input_ids, step_ids], dim=1)
 
             # Embed the dynamically growing text sequence
-            current_text_embeds = self.wrapper.embed_text(
-                current_input_ids
-            ).requires_grad_()
+            current_text_embeds = self.wrapper.embed_text(current_input_ids).requires_grad_()
             captum_forward = (current_text_embeds, pixel_values.requires_grad_())
 
             # Dynamically grow the attention mask if it exists
@@ -117,15 +113,11 @@ class CaptumExplainer(BaseExplainer):
                     dtype=step_kwargs["attention_mask"].dtype,
                     device=self.device,
                 )
-                step_kwargs["attention_mask"] = torch.cat(
-                    [step_kwargs["attention_mask"], extra_mask], dim=1
-                )
+                step_kwargs["attention_mask"] = torch.cat([step_kwargs["attention_mask"], extra_mask], dim=1)
 
             baselines = None
             if use_baselines:
-                token_reference = TokenReferenceBase(
-                    reference_token_idx=self.wrapper.processor.tokenizer.pad_token_id
-                )
+                token_reference = TokenReferenceBase(reference_token_idx=self.wrapper.processor.tokenizer.pad_token_id)
                 # generate reference for each sample
                 reference_ids = token_reference.generate_reference(
                     current_input_ids.shape[-1], device=self.device
@@ -156,9 +148,7 @@ class CaptumExplainer(BaseExplainer):
             torch.cuda.empty_cache()
 
             if step_idx > 0:
-                token_attr = token_attr[
-                    :, :-step_idx, :
-                ]  # Remove the attribution for answer tokens
+                token_attr = token_attr[:, :-step_idx, :]  # Remove the attribution for answer tokens
             token_attrs.append(token_attr)
             pixel_attrs.append(pixel_attr)
 
@@ -166,12 +156,8 @@ class CaptumExplainer(BaseExplainer):
         # if not token_attrs:
         #     return None, None
 
-        token_attrs = torch.cat(
-            token_attrs, dim=0
-        )  # (num_targets, input_ids.shape[-1], hidden_dim)
-        pixel_attrs = torch.stack(
-            pixel_attrs, dim=0
-        )  # (num_targets, num_pixels, hidden_dim)
+        token_attrs = torch.cat(token_attrs, dim=0)  # (num_targets, input_ids.shape[-1], hidden_dim)
+        pixel_attrs = torch.stack(pixel_attrs, dim=0)  # (num_targets, num_pixels, hidden_dim)
 
         token_attrs = token_attrs.sum(-1)
 

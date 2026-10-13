@@ -52,9 +52,7 @@ class QwenVLWrapper(BaseVLMWrapper):
             if image_grid_thw.shape[0] == 1 and batch_size > 1:
                 image_grid_thw = image_grid_thw.repeat(batch_size, 1)
 
-        image_embeds = self.model.get_image_features(
-            pixel_values, image_grid_thw=image_grid_thw
-        )
+        image_embeds = self.model.get_image_features(pixel_values, image_grid_thw=image_grid_thw).pooler_output
         return image_embeds
 
     def merge_embeddings(
@@ -64,9 +62,7 @@ class QwenVLWrapper(BaseVLMWrapper):
         input_ids: torch.Tensor,
     ) -> torch.Tensor:
 
-        image_embeds = torch.cat(image_embeds, dim=0).to(
-            text_embeds.device, text_embeds.dtype
-        )
+        image_embeds = torch.cat(image_embeds, dim=0).to(text_embeds.device, text_embeds.dtype)
         image_mask, _ = self.model.model.get_placeholder_mask(
             input_ids, inputs_embeds=text_embeds, image_features=image_embeds
         )
@@ -74,9 +70,7 @@ class QwenVLWrapper(BaseVLMWrapper):
         return inputs_embeds
 
     def get_root_module(self) -> ModuleType:
-        return importlib.import_module(
-            "transformers.models.qwen2_5_vl.modeling_qwen2_5_vl"
-        )
+        return importlib.import_module("transformers.models.qwen2_5_vl.modeling_qwen2_5_vl")
 
     def get_patch_map(self) -> dict[Any, Any]:
         attnLRP = {
@@ -91,7 +85,9 @@ class QwenVLWrapper(BaseVLMWrapper):
         }
         return attnLRP
 
-    def get_inputs(self, image, text, safe_pixels=313600) -> dict[str, Any]:
+    def get_inputs(self, image, text,
+                   safe_pixels=313600
+                   ) -> dict[str, Any]:
         messages = [
             {
                 "role": "user",
@@ -102,9 +98,7 @@ class QwenVLWrapper(BaseVLMWrapper):
             }
         ]
         # Preparation for inference
-        text = self.processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
+        text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         # image_inputs, video_inputs = process_vision_info(messages)
         inputs = self.processor(
             text=[text],
@@ -140,18 +134,14 @@ class QwenVLWrapper(BaseVLMWrapper):
         }
 
     def _get_original_attention_forward(self):
-        self._vision_attention_forward = (
-            modeling_qwen2_5_vl.Qwen2_5_VLVisionAttention.forward
-        )
+        self._vision_attention_forward = modeling_qwen2_5_vl.Qwen2_5_VLVisionAttention.forward
         self._text_attention_forward = None
 
     def apply_patch(self):
         modeling_qwen2_5_vl.Qwen2_5_VLVisionAttention.forward = patch_vision_forward
 
     def remove_patch(self):
-        modeling_qwen2_5_vl.Qwen2_5_VLVisionAttention.forward = (
-            self._vision_attention_forward
-        )
+        modeling_qwen2_5_vl.Qwen2_5_VLVisionAttention.forward = self._vision_attention_forward
 
     @property
     def vision_module_name(self) -> str:
@@ -184,15 +174,10 @@ def patch_vision_forward(
 ) -> torch.Tensor:
     seq_length = hidden_states.shape[0]
     query_states, key_states, value_states = (
-        self.qkv(hidden_states)
-        .reshape(seq_length, 3, self.num_heads, -1)
-        .permute(1, 0, 2, 3)
-        .unbind(0)
+        self.qkv(hidden_states).reshape(seq_length, 3, self.num_heads, -1).permute(1, 0, 2, 3).unbind(0)
     )
     cos, sin = position_embeddings
-    query_states, key_states = modeling_qwen2_5_vl.apply_rotary_pos_emb_vision(
-        query_states, key_states, cos, sin
-    )
+    query_states, key_states = modeling_qwen2_5_vl.apply_rotary_pos_emb_vision(query_states, key_states, cos, sin)
 
     query_states = query_states.transpose(0, 1).unsqueeze(0)
     key_states = key_states.transpose(0, 1).unsqueeze(0)
@@ -224,10 +209,7 @@ def patch_vision_forward(
     else:
         # Other implementations: Process each chunk separately
         lengths = cu_seqlens[1:] - cu_seqlens[:-1]
-        splits = [
-            torch.split(tensor, lengths.tolist(), dim=2)
-            for tensor in (query_states, key_states, value_states)
-        ]
+        splits = [torch.split(tensor, lengths.tolist(), dim=2) for tensor in (query_states, key_states, value_states)]
 
         attn_outputs, attn_weights = map(
             list,
@@ -244,8 +226,9 @@ def patch_vision_forward(
                         is_causal=False,
                         **kwargs,
                     )
-                    for q, k, v in zip(*splits)
-                )
+                    for q, k, v in zip(*splits, strict=False)
+                ),
+                strict=False,
             ),
         )
         attn_output = torch.cat(attn_outputs, dim=1)
@@ -257,9 +240,7 @@ def patch_vision_forward(
     return attn_output
 
 
-def load_model(
-    model_id="Qwen/Qwen2.5-VL-3B-Instruct", attn_implementation=None, gpu_node=0
-):
+def load_model(model_id="Qwen/Qwen2.5-VL-3B-Instruct", attn_implementation=None, gpu_node=0):
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_compute_dtype=torch.bfloat16,

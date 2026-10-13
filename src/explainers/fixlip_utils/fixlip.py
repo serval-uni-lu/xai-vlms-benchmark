@@ -1,10 +1,11 @@
 import time
+from typing import Optional
 
 import shapiq
 import numpy as np
 import scipy as sp
 
-from . import sampler
+from .sampler import CoalitionSampler
 
 
 class FIxLIP:
@@ -13,80 +14,90 @@ class FIxLIP:
     """
     def __init__(
             self, 
-            n_players=None, 
-            n_players_image=None,
-            n_players_text=None,
-            mode="banzhaf",
-            p=0.5, 
-            max_order=2, 
-            random_state=None,
-            sparse_regression=False
+            n_players: Optional[int] = None, 
+            n_players_image: Optional[int] = None,
+            n_players_text: Optional[int] = None,
+            mode: str = "banzhaf",
+            p: float = 0.5, 
+            max_order: int = 2, 
+            random_state = None,
+            sparse_regression: bool = False
         ):
         self.mode = mode
         self.sparse_regression = sparse_regression
         self.is_crossmodal = False
 
-        if n_players_image and n_players_text:
+        # 1. Validate inputs immediately to satisfy strict type checking
+        if n_players_image is not None and n_players_text is not None:
             if mode.lower() == "shapley":
                 raise ValueError("approximate_crossmodal() is not available for mode 'Shapley'")
             self.is_crossmodal = True
             n_players = n_players_image + n_players_text
             self.n_players_image = n_players_image
             self.n_players_text = n_players_text
+        elif n_players is None:
+            # Catch the None case before any mathematical operations are performed
+            raise ValueError(
+                "Pass either `n_players` for basic usage or "
+                "pass `n_players_image` and `n_players_text` for crossmodal usage."
+            )
+        
+        # At this point, the compiler guarantees `n_players` is an `int`.
+        # Assign it to self immediately so we can use self.n_players reliably.
+        self.n_players: int = n_players
+        self.p = p
+        self.max_order = max_order
+        self.random_state = random_state
 
+        # 2. Compute sampling weights safely
         if mode.lower() == "banzhaf":
             # Sample using uniform weights
             sampling_weights = np.array([
-                    sp.special.binom(n_players, k) * (p ** k) * ((1 - p) ** (n_players - k))\
-                          for k in range(n_players + 1)
-                ])
+                sp.special.binom(self.n_players, k) * (p ** k) * ((1 - p) ** (self.n_players - k))
+                for k in range(self.n_players + 1)
+            ])
             enforce_empty_full = False
         elif mode.lower() == "shapley":
-            sampling_weights = np.zeros(n_players + 1)
+            sampling_weights = np.zeros(self.n_players + 1)
             # KernelSHAP sampling weights
-            for coalition_size in range(1, n_players):
-                sampling_weights[coalition_size] = 1 / (coalition_size * (n_players - coalition_size))
+            for coalition_size in range(1, self.n_players):
+                sampling_weights[coalition_size] = 1 / (coalition_size * (self.n_players - coalition_size))
             enforce_empty_full = True
         else:
             raise ValueError("`mode` should be either 'Banzhaf' or 'Shapley'.")
         
-        if n_players_image and n_players_text:
-            self.sampler_image = sampler.CoalitionSampler(
-                n_players=n_players_image, 
+        # 3. Initialize specific samplers
+        if self.is_crossmodal:
+            # The type checker knows these are ints because is_crossmodal is True
+            self.sampler_image = CoalitionSampler(
+                n_players=self.n_players_image, 
                 sampling_weights=np.array([
-                    sp.special.binom(n_players_image, k) * (p ** k) * ((1 - p) ** (n_players_image - k))\
-                          for k in range(n_players_image + 1)
+                    sp.special.binom(self.n_players_image, k) * (p ** k) * ((1 - p) ** (self.n_players_image - k))
+                    for k in range(self.n_players_image + 1)
                 ]), 
                 enforce_empty_full=enforce_empty_full,
                 pairing_trick=False, 
                 random_state=random_state
             )
-            self.sampler_text = sampler.CoalitionSampler(
-                n_players=n_players_text, 
+            self.sampler_text = CoalitionSampler(
+                n_players=self.n_players_text, 
                 sampling_weights=np.array([
-                    sp.special.binom(n_players_text, k) * (p ** k) * ((1 - p) ** (n_players_text - k))\
-                          for k in range(n_players_text + 1)
+                    sp.special.binom(self.n_players_text, k) * (p ** k) * ((1 - p) ** (self.n_players_text - k))
+                    for k in range(self.n_players_text + 1)
                 ]), 
                 enforce_empty_full=enforce_empty_full,
                 pairing_trick=False, 
                 random_state=random_state
             )
-        elif n_players is None:
-            raise ValueError("Pass either `n_players` for basic usage or "+\
-                             "pass `n_players_image` and `n_players_text` for crossmodal usage.")
         
-        self.n_players = n_players
-        self.p = p
-        self.max_order = max_order
-        self.random_state = random_state
-        self.sampler = sampler.CoalitionSampler(
-            n_players=n_players,
+        # 4. Initialize base sampler
+        self.sampler = CoalitionSampler(
+            n_players=self.n_players,
             sampling_weights=sampling_weights,
             enforce_empty_full=enforce_empty_full,
             pairing_trick=False, 
             random_state=random_state
         )
-
 
     def approximate(
             self, 
@@ -125,6 +136,9 @@ class FIxLIP:
                 big_M = 10e6
                 kernel_weights[0] = big_M
                 kernel_weights[-1] = big_M
+            else:
+                raise ValueError(f"Mode {self.mode.lower()} is not implemented !")
+            
             regression_weights = get_regression_weights(self.sampler, kernel_weights)
             # aggregate coalition values
             interaction_values = self.aggregate(
@@ -169,6 +183,9 @@ class FIxLIP:
             interaction_values[()] = float(game.normalization_value)  # Ensure empty coalition value is correct
             # Ensure that all values are present and pad with zeros if necessary.
             interaction_values = populate_sparse_iv_with_zeros(interaction_values)
+        
+        else:
+            raise ValueError(f"Approximation type {approximation_type} is not implemented !")
 
         return interaction_values
 
@@ -272,6 +289,9 @@ class FIxLIP:
             interaction_values[()] = float(game.normalization_value)  # Ensure empty coalition value is correct
             # Ensure that all values are present and pad with zeros if necessary.
             interaction_values = populate_sparse_iv_with_zeros(interaction_values)
+        
+        else:
+            raise ValueError(f"Approximation type {approximation_type} is not implemented !")
 
         return interaction_values
 
@@ -301,7 +321,7 @@ class FIxLIP:
         interaction_values = shapiq.InteractionValues(
             values=values,
             interaction_lookup=interaction_lookup,
-            baseline_value=values[interaction_lookup[()]],
+            baseline_value=float(values[interaction_lookup[()]]),
             n_players=n_players,
             index="Moebius",
             max_order=self.max_order,
@@ -388,3 +408,5 @@ def populate_sparse_iv_with_zeros(iv):
         estimation_budget=iv.estimation_budget,
         baseline_value=iv.baseline_value
     )
+
+

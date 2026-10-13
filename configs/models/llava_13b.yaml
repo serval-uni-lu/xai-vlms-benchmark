@@ -1,5 +1,5 @@
-name: "internvl"
-vlm_type: "internvl"
-model_id: "OpenGVLab/InternVL3_5-2B-HF"
+name: "llava"
+vlm_type: "llava_13b"
+model_id: "llava-hf/llava-1.5-13b-hf"
 trust_remote_code: false
 cam_target_layer: "layers.7.post_attention_layernorm"

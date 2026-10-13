@@ -1,11 +1,10 @@
-
 import numpy as np
 import torch
 
 from src.explainers import BaseExplainer
 from src.explainers.tam_utils.tam import TAM
-from src.explainers.utils import align_llm_visuals_to_pixels
 from src.models import BaseVLMWrapper
+from src.utils.xai_utils import align_llm_visuals_to_pixels
 
 
 class TAMExplainer(BaseExplainer):
@@ -43,9 +42,7 @@ class TAMExplainer(BaseExplainer):
             indices_to_compute = target_indices
 
         # Safety check: prevent out-of-bounds crashes
-        indices_to_compute = [
-            idx for idx in indices_to_compute if idx < seq_len_generated
-        ]
+        indices_to_compute = [idx for idx in indices_to_compute if idx < seq_len_generated]
 
         tam_config = self.wrapper.get_tam_config(inputs)
         vis_inputs = np.array(image.convert("RGB"))
@@ -89,8 +86,6 @@ class TAMExplainer(BaseExplainer):
         text_attributions = torch.stack(text_attributions)
 
         # Geometrically align the raw patches/tiles back to the expected pixel space
-        img_attributions = align_llm_visuals_to_pixels(
-            img_attributions, inputs, config=self.wrapper.model.config
-        )
+        img_attributions = align_llm_visuals_to_pixels(img_attributions, inputs, config=self.wrapper.model.config)
 
         return text_attributions, img_attributions

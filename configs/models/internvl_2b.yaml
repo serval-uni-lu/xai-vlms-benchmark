@@ -1,0 +1,5 @@
+name: "internvl"
+vlm_type: "internvl_2b"
+model_id: "OpenGVLab/InternVL3_5-2B-HF"
+trust_remote_code: false
+cam_target_layer: "layers.7.post_attention_layernorm"

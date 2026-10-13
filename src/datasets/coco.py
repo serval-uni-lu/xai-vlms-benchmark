@@ -1,7 +1,7 @@
 import os
 
-import torch
 import numpy as np
+import torch
 from PIL import Image
 from pycocotools.coco import COCO
 from torch.utils.data import Dataset
@@ -27,7 +27,7 @@ class COCOGroundingDataset(Dataset):
 
         # Filter: Only keep images that have annotations AND captions
         # (Usually identical sets, but good for safety)
-        self.ids = list(sorted(self.coco_instances.imgs.keys()))
+        self.ids = sorted(self.coco_instances.imgs.keys())
 
         # Cache category mapping for the Instances
         cats = self.coco_instances.loadCats(self.coco_instances.getCatIds())
@@ -36,8 +36,8 @@ class COCOGroundingDataset(Dataset):
     def __len__(self):
         return len(self.ids)
 
-    def __getitem__(self, idx):
-        img_id = self.ids[idx]
+    def __getitem__(self, index):
+        img_id = self.ids[index]
 
         # --- 1. Load Image ---
         img_info = self.coco_instances.loadImgs(img_id)[0]

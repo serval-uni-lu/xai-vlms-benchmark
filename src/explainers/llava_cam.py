@@ -6,8 +6,8 @@ import torch.nn as nn
 from PIL import Image
 
 from src.explainers import BaseExplainer
-from src.explainers.utils import align_llm_visuals_to_pixels
 from src.models import BaseVLMWrapper
+from src.utils.xai_utils import align_llm_visuals_to_pixels
 
 
 class LLaVACAMExplainer(BaseExplainer):
@@ -75,6 +75,9 @@ class LLaVACAMExplainer(BaseExplainer):
         activations = self.feature_maps
         gradients = self.gradients
 
+        # MULTI-GPU MASK DEVICE FIX
+        mask = mask.to(activations.device)
+
         feats = activations[0, mask, :]
         grads = gradients[0, mask, :]
 
@@ -108,7 +111,8 @@ class LLaVACAMExplainer(BaseExplainer):
             raise TypeError(f"Unsupported input type: {type(image)}")
 
         img_arr = np.array(pil_img).astype(np.float32)
-        noise = np.random.normal(0, noise_std * 255, img_arr.shape)
+        rng = np.random.default_rng()
+        noise = rng.normal(0, noise_std * 255, img_arr.shape)
         noisy_arr = np.clip(img_arr + noise, 0, 255).astype(np.uint8)
 
         noisy_pil = Image.fromarray(noisy_arr)
@@ -134,9 +138,7 @@ class LLaVACAMExplainer(BaseExplainer):
 
         for _ in range(self.num_samples - 1):
             noisy_img = self._add_noise(image, noise_std=self.noise_std)
-            t_cam, p_cam = self.llava_cam(
-                image=noisy_img, text=text, target_indices=target_indices, **kwargs
-            )
+            t_cam, p_cam = self.llava_cam(image=noisy_img, text=text, target_indices=target_indices, **kwargs)
 
             smooth_token_cam += t_cam
             smooth_pixel_cam += p_cam
@@ -190,16 +192,36 @@ class LLaVACAMExplainer(BaseExplainer):
 
         inputs["attention_mask"] = torch.ones_like(inputs["input_ids"])
 
+        # --- MULTIMODAL ROPE FIX FOR QWEN ---
+        # If the model requires mm_token_type_ids, we must expand it to match the new input_ids length.
+        # Since all generated tokens are text, we pad it with the text type (0).
+        if "mm_token_type_ids" in inputs:
+            orig_mm_types = inputs["mm_token_type_ids"]
+            
+            # Create a tensor of 0s (text type) for the newly generated answer tokens
+            pad_types = torch.zeros(
+                (orig_mm_types.shape[0], gen_len), 
+                dtype=orig_mm_types.dtype, 
+                device=orig_mm_types.device
+            )
+            
+            # Concatenate them together so it matches the length of the full_ids
+            inputs["mm_token_type_ids"] = torch.cat([orig_mm_types, pad_types], dim=1)
+            
+        # Optional: Also catch position_ids if they were explicitly passed by the processor
+        if "position_ids" in inputs:
+            # We delete it so Qwen is forced to dynamically recalculate the correct 
+            # position IDs using the newly padded mm_token_type_ids
+            del inputs["position_ids"]
+
         image_token_id = self.wrapper.model.config.image_token_id
 
         # Boolean Masks (flattened to 1D)
         full_ids_1d = inputs["input_ids"].squeeze()
-        prompt_mask = (
-            torch.arange(full_ids_1d.size(-1), device=full_ids_1d.device) < t_start
-        )
+        prompt_mask = torch.arange(full_ids_1d.size(-1), device=full_ids_1d.device) < t_start
 
         is_image_mask = full_ids_1d == image_token_id
-        is_text_mask = ~is_image_mask
+        # is_text_mask = ~is_image_mask
 
         final_text_mask = prompt_mask
         final_image_mask = is_image_mask & prompt_mask
@@ -209,14 +231,10 @@ class LLaVACAMExplainer(BaseExplainer):
                 **inputs,
                 use_cache=False,  # Crucial for backward hooks
             )
-            logits = outputs.logits[
-                :, t_start - 1 : t_end - 1, :
-            ]  # (1, num_ans_tokens, vocab_size)
+            logits = outputs.logits[:, t_start - 1 : t_end - 1, :]  # (1, num_ans_tokens, vocab_size)
 
             new_ids = full_ids[t_start:t_end].unsqueeze(0).unsqueeze(-1)
-            target_logits = logits.gather(dim=-1, index=new_ids).squeeze(
-                -1
-            )  # (1, num_ans_tokens)
+            target_logits = logits.gather(dim=-1, index=new_ids).squeeze(-1)  # (1, num_ans_tokens)
 
             if self.token_wise:
                 token_attributions = []
@@ -241,12 +259,8 @@ class LLaVACAMExplainer(BaseExplainer):
                     token_attributions.append(tok_attr)
                     pixel_attributions.append(pix_attr)
 
-                token_attribution = torch.stack(
-                    token_attributions, dim=0
-                )  # [num_targets, num_text_tokens]
-                pixel_attribution = torch.stack(
-                    pixel_attributions, dim=0
-                )  # [num_targets, num_image_tokens]
+                token_attribution = torch.stack(token_attributions, dim=0)  # [num_targets, num_text_tokens]
+                pixel_attribution = torch.stack(pixel_attributions, dim=0)  # [num_targets, num_image_tokens]
 
             else:
                 # --- AGGREGATED TARGETS: Only sum the requested indices ---
@@ -258,8 +272,6 @@ class LLaVACAMExplainer(BaseExplainer):
                 pixel_attribution = self.compute_cam(final_image_mask).unsqueeze(0)
 
         # Map back to 2D/3D pixel space
-        pixel_attribution = align_llm_visuals_to_pixels(
-            pixel_attribution, inputs, config=self.wrapper.model.config
-        )
+        pixel_attribution = align_llm_visuals_to_pixels(pixel_attribution, inputs, config=self.wrapper.model.config)
 
         return token_attribution, pixel_attribution

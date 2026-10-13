@@ -8,17 +8,17 @@ from PIL import ImageFilter
 from torch import Tensor
 
 from src.metrics.base import BaseMetric
-from src.metrics.faithfulness_utils import (
+from src.models import BaseVLMWrapper
+from src.utils.faithfulness_utils import (
     _reshape_pixels_back_faithfulness,
     _reshape_pixels_faithfulness,
     get_most_important_tokens_multimodal,
     get_most_important_tokens_pixel,
     get_most_important_tokens_token,
+    get_text_mask,
     make_blur_baseline,
     score_output,
-    get_text_mask,
 )
-from src.models import BaseVLMWrapper
 
 
 # Helper to safely convert arrays/tensors of shape (S, B) to flat Python lists
@@ -66,13 +66,13 @@ class FaithfulnessMetric(BaseMetric):
 
         for i in range(num_tokens):
             step_kwargs = kwargs.copy()
-            
+
             # Slice the attributions to shape [1, ...] to satisfy the eval function
             if "pixel_attribution" in step_kwargs and step_kwargs["pixel_attribution"] is not None:
-                step_kwargs["pixel_attribution"] = step_kwargs["pixel_attribution"][i:i+1]
-                
+                step_kwargs["pixel_attribution"] = step_kwargs["pixel_attribution"][i : i + 1]
+
             if "token_attribution" in step_kwargs and step_kwargs["token_attribution"] is not None:
-                step_kwargs["token_attribution"] = step_kwargs["token_attribution"][i:i+1]
+                step_kwargs["token_attribution"] = step_kwargs["token_attribution"][i : i + 1]
 
             # Run the underlying masking function for just this one token
             res = eval_func(**step_kwargs)
@@ -95,18 +95,17 @@ class FaithfulnessMetric(BaseMetric):
 
     def compute(
         self,
-        wrapper, # BaseVLMWrapper
+        wrapper,  # BaseVLMWrapper
         sample: dict[str, Any],
         xai_result: dict[str, Any],
         required_metrics=None,
+        compute_syn_only=False,
     ) -> dict[str, Any]:
-        
+
         inputs = xai_result["inputs"]
         target_ids = xai_result["target_ids"]
         pixel_attr = xai_result.get("pixel_attribution")
         tok_attr = xai_result.get("token_attribution")
-
-        
 
         # Determine how many tokens we are evaluating
         num_tokens = 1
@@ -116,28 +115,29 @@ class FaithfulnessMetric(BaseMetric):
             num_tokens = tok_attr.shape[0]
 
         image = sample.get("image")
-        question = str(sample.get("question"))
+        # question = str(sample.get("question"))
         blur_baseline = None
         if image is not None:
             text = sample.get("text")
             blurred_img = image.filter(ImageFilter.GaussianBlur(radius=30))
             blurred_inpts = wrapper.get_inputs(blurred_img, text)
             blur_baseline = blurred_inpts["pixel_values"]
+        else:
+            blur_baseline = torch.full_like(inputs["pixel_values"],
+                                            self.mask_value).to(wrapper.device)
 
         results = {}
 
         # Get text only mask
         model_type = getattr(wrapper.model.config, "model_type", "").lower()
-        semantic_mask = get_text_mask(inputs["input_ids"],
-                                    model_type,
-                                    wrapper.processor.tokenizer)
+        semantic_mask = get_text_mask(inputs["input_ids"], model_type, wrapper.processor.tokenizer)
 
         # --- A. Image Perturbation ---
-        if pixel_attr is not None:
+        if pixel_attr is not None and not compute_syn_only:
             start_time = time.perf_counter()
 
             img_res = self._evaluate_over_tokens(
-                eval_image_perturbation_batch, # Ensure this is imported in your file!
+                eval_image_perturbation_batch,  # Ensure this is imported in your file!
                 num_tokens=num_tokens,
                 model=wrapper,
                 inputs=inputs,
@@ -147,15 +147,13 @@ class FaithfulnessMetric(BaseMetric):
                 blur_baseline=blur_baseline,
                 mask_value=self.mask_value,
                 filter_keywords=self.filter_keywords,
-                
             )
 
             results["time_img_pert"] = time.perf_counter() - start_time
-            results.update(self._format_results("img", img_res,
-                                                required_metrics=required_metrics))
+            results.update(self._format_results("img", img_res, required_metrics=required_metrics))
 
         # --- B. Token Perturbation ---
-        if tok_attr is not None:
+        if tok_attr is not None and not compute_syn_only:
             start_time = time.perf_counter()
 
             tok_res = self._evaluate_over_tokens(
@@ -173,8 +171,7 @@ class FaithfulnessMetric(BaseMetric):
             )
 
             results["time_tok_pert"] = time.perf_counter() - start_time
-            results.update(self._format_results("tok", tok_res,
-                                                required_metrics=required_metrics))
+            results.update(self._format_results("tok", tok_res, required_metrics=required_metrics))
 
         # --- C. Multimodal Synergy ---
         if pixel_attr is not None and tok_attr is not None:
@@ -198,15 +195,16 @@ class FaithfulnessMetric(BaseMetric):
             )
 
             results["time_syn_pert"] = time.perf_counter() - start_time
-            results.update(self._format_results("syn", syn_res,
-                                                required_metrics=required_metrics))
+            results.update(self._format_results("syn", syn_res, required_metrics=required_metrics))
 
         return results
 
-    def _format_results(self, prefix: str,
-                        raw_metrics: dict[str, Any],
-                        required_metrics: list[str] | None = None,
-                        ) -> dict[str, Any]:
+    def _format_results(
+        self,
+        prefix: str,
+        raw_metrics: dict[str, Any],
+        required_metrics: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Flattens arrays and adds modality prefixes."""
         if required_metrics is None:
             required_metrics = ["auc"]
@@ -288,9 +286,7 @@ def eval_image_perturbation_batch(
     # Baseline image (blur)
     if blur_baseline is None:
         # blur_baseline = torch.full_like(pixel_values, mask_value).to(device)
-        blur_baseline = make_blur_baseline(
-            pixel_values=pixel_values, model_type=model_type
-        )
+        blur_baseline = make_blur_baseline(pixel_values=pixel_values, model_type=model_type)
     feat_baseline = blur_baseline.clone().reshape(feat.shape)
 
     # Flatten Attribution Map
@@ -344,7 +340,7 @@ def eval_image_perturbation_batch(
         positions=target_positions,
     ).numpy()  # (B,)
 
-    normalizer = np.maximum(np.abs(baseline_scores - blur_scores), .05)
+    normalizer = np.maximum(np.abs(baseline_scores - blur_scores), 0.05)
 
     # else:
     #     # Temporary fallback if no blur image provided: assume 0.0 or calculate on fully masked
@@ -375,9 +371,7 @@ def eval_image_perturbation_batch(
         # Descending = True -> Remove highest saliency first (Deletion)
         _, flat_idx = torch.topk(sal_flat, k, dim=-1, largest=descending)  # (B, k)
 
-        flat_idx_expanded = flat_idx.unsqueeze(1).expand(
-            B, num_feats, k
-        )  # (B, num_feats, k)
+        flat_idx_expanded = flat_idx.unsqueeze(1).expand(B, num_feats, k)  # (B, num_feats, k)
 
         # ----------------------------
         # Deletion
@@ -386,14 +380,10 @@ def eval_image_perturbation_batch(
         # Create Perturbed Batch
         feat_pert = feat.clone()
         # mask_src = torch.full_like(feat_pert[:, :, :k], mask_value)
-        mask_src = feat_baseline.gather(
-            dim=2, index=flat_idx_expanded
-        )  # (B, num_feats, k)
+        mask_src = feat_baseline.gather(dim=2, index=flat_idx_expanded)  # (B, num_feats, k)
 
         # Apply mask
-        feat_pert.scatter_(
-            dim=2, index=flat_idx_expanded, src=mask_src
-        )  # (B, num_feats, k)
+        feat_pert.scatter_(dim=2, index=flat_idx_expanded, src=mask_src)  # (B, num_feats, k)
 
         # Reshape back to original pixel_values
         del_pixels = _reshape_pixels_back_faithfulness(
@@ -413,9 +403,7 @@ def eval_image_perturbation_batch(
         mask_src = feat.gather(dim=2, index=flat_idx_expanded)  # (B, C, k)
 
         # Apply mask
-        feat_pert.scatter_(
-            dim=2, index=flat_idx_expanded, src=mask_src
-        )  # (B, num_feats, k)
+        feat_pert.scatter_(dim=2, index=flat_idx_expanded, src=mask_src)  # (B, num_feats, k)
 
         # Reshape back to original pixel_values
         ins_pixels = _reshape_pixels_back_faithfulness(
@@ -438,7 +426,7 @@ def eval_image_perturbation_batch(
         # This matches: outputs = (outputs-blur_scores) / (og_scores-blur_scores)
         # norm_score = (current_del_scores - blur_scores) / (baseline_scores - blur_scores + 1e-9)
         norm_score = (current_del_scores - blur_scores) / normalizer
-        normalized_del_scores[i] = np.clip(norm_score, 0., 1.)
+        normalized_del_scores[i] = np.clip(norm_score, 0.0, 1.0)
 
         # Compute Insertion Scores
         current_ins_scores = score_output(
@@ -454,7 +442,7 @@ def eval_image_perturbation_batch(
         # Normalize: (Current - Blur) / (Original - Blur)
         # norm_score = (current_ins_scores - blur_scores) / (baseline_scores - blur_scores + 1e-9)
         norm_score = (current_ins_scores - blur_scores) / normalizer
-        normalized_ins_scores[i] = np.clip(norm_score, 0., 1.)
+        normalized_ins_scores[i] = np.clip(norm_score, 0.0, 1.0)
 
     # Compute AUC scores
     norm_auc_del = np.trapezoid(normalized_del_scores, x=perturbation_steps, axis=0)
@@ -499,9 +487,7 @@ def eval_token_perturbation_batch(
 
     # Ensure attribution matches prompt length
     if token_attribution.shape[-1] != input_ids.shape[-1]:
-        raise ValueError(
-            f"Attribution length {token_attribution.shape} != Input length {input_ids.shape}"
-        )
+        raise ValueError(f"Attribution length {token_attribution.shape} != Input length {input_ids.shape}")
 
     B, seq_len = input_ids.shape
 
@@ -519,7 +505,7 @@ def eval_token_perturbation_batch(
         for skip_id in special_token_ids:
             # Mark positions containing visual tokens as False
             valid_mask &= input_ids != skip_id
-    
+
     # Count how many actual text tokens we have per batch
     # We take the min across batch to ensure consistent step sizes, or average.
     # For safety, let's assume batch has roughly same text length or take the first.
@@ -550,9 +536,7 @@ def eval_token_perturbation_batch(
         # Easier to call the logic directly:
 
         # Calculate keywords based on: "Does masking the prompt destroy the answer?"
-        target_positions = get_most_important_tokens_token(
-            model, inputs, input_ids, baseline_input_ids, target_ids
-        )
+        target_positions = get_most_important_tokens_token(model, inputs, input_ids, baseline_input_ids, target_ids)
     else:
         # Default: Use all target tokens
         seq_len = target_ids.shape[1]
@@ -580,7 +564,7 @@ def eval_token_perturbation_batch(
         positions=target_positions,
     ).numpy()
 
-    normalizer = np.maximum(np.abs(baseline_scores - blur_scores), .05)
+    normalizer = np.maximum(np.abs(baseline_scores - blur_scores), 0.05)
 
     # 4. Perturbation Loop
     S = len(perturbation_steps)
@@ -606,9 +590,7 @@ def eval_token_perturbation_batch(
 
         # Identify Top-K Tokens
         # We always want the "Most Important" tokens
-        _, top_indices = torch.topk(
-            masked_attribution, k, dim=-1, largest=descending
-        )  # (B, k)
+        _, top_indices = torch.topk(masked_attribution, k, dim=-1, largest=descending)  # (B, k)
 
         # ------------------------------
         # Deletion: Original -> Pad
@@ -643,7 +625,7 @@ def eval_token_perturbation_batch(
         del_curve[i] = s_del
         # norm_del_curve[i] = (s_del - blur_scores) / (baseline_scores - blur_scores + 1e-9)
         norm_del = (s_del - blur_scores) / normalizer
-        norm_del_curve[i] = np.clip(norm_del, 0., 1.)
+        norm_del_curve[i] = np.clip(norm_del, 0.0, 1.0)
 
         # Insertion
         s_ins = score_output(
@@ -657,7 +639,7 @@ def eval_token_perturbation_batch(
         ins_curve[i] = s_ins
         # norm_ins_curve[i] = (s_ins - blur_scores) / (baseline_scores - blur_scores + 1e-9)
         norm_ins = (s_ins - blur_scores) / normalizer
-        norm_ins_curve[i] = np.clip(norm_ins, 0., 1.)
+        norm_ins_curve[i] = np.clip(norm_ins, 0.0, 1.0)
 
     # Compute AUC scores
     norm_auc_del = np.trapezoid(norm_del_curve, x=perturbation_steps, axis=0)
@@ -745,9 +727,7 @@ def eval_multimodal_synergy_batch(
     # Baseline image (blur)
     if blur_baseline is None:
         # blur_baseline = torch.full_like(pixel_values, mask_value).to(device)
-        blur_baseline = make_blur_baseline(
-            pixel_values=pixel_values, model_type=model_type
-        )
+        blur_baseline = make_blur_baseline(pixel_values=pixel_values, model_type=model_type)
     feat_baseline = blur_baseline.clone().reshape(feat.shape)
 
     # Flatten Attribution Map
@@ -773,7 +753,6 @@ def eval_multimodal_synergy_batch(
         for skip_id in special_token_ids:
             # Mark positions containing visual tokens as False
             valid_mask &= input_ids != skip_id
-    
 
     # Count how many actual text tokens we have per batch
     num_valid_tokens = valid_mask.sum(dim=1).min().item()
@@ -832,7 +811,7 @@ def eval_multimodal_synergy_batch(
 
     # normalizer_ins = full_scores - zeros_scores
     # normalizer_del = full_scores - zeros_scores
-    normalizer = np.maximum(np.abs(full_scores - zeros_scores), .05)
+    normalizer = np.maximum(np.abs(full_scores - zeros_scores), 0.05)
 
     # --- 4. Loop ---
     S = len(perturbation_steps)
@@ -847,7 +826,7 @@ def eval_multimodal_synergy_batch(
         k_img = max(0, min(k_img, num_pixels))  # Allow 0
 
         k_txt = int(round(step * num_valid_tokens))
-        k_txt = max(0, min(k_txt, num_valid_tokens))  # Allow 0
+        k_txt = int(max(0, min(k_txt, num_valid_tokens)))  # Allow 0
 
         # Identify Top Pixels
         # descending=True means "most important first"
@@ -857,9 +836,7 @@ def eval_multimodal_synergy_batch(
 
         # Identify Top-K Tokens
         # We always want the "Most Important" tokens
-        _, top_token_idx = torch.topk(
-            masked_attribution, k_txt, dim=-1, largest=descending
-        )  # (B, k)
+        _, top_token_idx = torch.topk(masked_attribution, k_txt, dim=-1, largest=descending)  # (B, k)
 
         # ----------------------------
         # Deletion
@@ -892,9 +869,7 @@ def eval_multimodal_synergy_batch(
         mask_src = feat.gather(dim=2, index=top_img_idx_exp)  # (B, C, k)
 
         # Apply mask
-        feat_pert.scatter_(
-            dim=2, index=top_img_idx_exp, src=mask_src
-        )  # (B, num_feats, k)
+        feat_pert.scatter_(dim=2, index=top_img_idx_exp, src=mask_src)  # (B, num_feats, k)
 
         # Reshape back to original pixel_values
         ins_pixels = _reshape_pixels_back_faithfulness(
@@ -951,7 +926,7 @@ def eval_multimodal_synergy_batch(
         # del_norm_synergy_curve[i] /= (normalizer_del + 1e-9)
         # del_norm_synergy_curve[i] += 1
         del_norm = del_synergy / normalizer
-        del_norm_synergy_curve[i] = np.clip(del_norm, 0., 1.)
+        del_norm_synergy_curve[i] = np.clip(del_norm, 0.0, 1.0)
 
         # --- Insertion Scoring ---
 
@@ -995,19 +970,15 @@ def eval_multimodal_synergy_batch(
         ins_synergy_curve[i] = ins_synergy
         # ins_norm_synergy_curve[i] = ins_synergy / (normalizer_ins + 1e-9)
         ins_norm = ins_synergy / normalizer
-        ins_norm_synergy_curve[i] = np.clip(ins_norm, 0., 1.)
+        ins_norm_synergy_curve[i] = np.clip(ins_norm, 0.0, 1.0)
 
-    del_norm_syn_auc = np.trapezoid(
-        del_norm_synergy_curve, x=perturbation_steps, axis=0
-    )
-    ins_norm_syn_auc = np.trapezoid(
-        ins_norm_synergy_curve, x=perturbation_steps, axis=0
-    )
+    del_norm_syn_auc = np.trapezoid(del_norm_synergy_curve, x=perturbation_steps, axis=0)
+    ins_norm_syn_auc = np.trapezoid(ins_norm_synergy_curve, x=perturbation_steps, axis=0)
     del_syn_auc = np.trapezoid(del_synergy_curve, x=perturbation_steps, axis=0)
     ins_syn_auc = np.trapezoid(ins_synergy_curve, x=perturbation_steps, axis=0)
 
-    synergy_curve = (ins_synergy_curve + del_synergy_curve) / 2.
-    synergy_norm_curve = (ins_norm_synergy_curve + del_norm_synergy_curve) / 2.
+    synergy_curve = (ins_synergy_curve + del_synergy_curve) / 2.0
+    synergy_norm_curve = (ins_norm_synergy_curve + del_norm_synergy_curve) / 2.0
     synergy_norm_auc = np.trapezoid(synergy_norm_curve, x=perturbation_steps, axis=0)
     synergy_auc = np.trapezoid(synergy_curve, x=perturbation_steps, axis=0)
 

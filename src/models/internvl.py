@@ -20,7 +20,8 @@ class InternVLWrapper(BaseVLMWrapper):
         super().__init__(model, processor)
         # self._get_original_attention_forward()
 
-    def get_inputs(self, image, text) -> dict[str, Any]:
+    def get_inputs(self, image, text
+                    ) -> dict[str, Any]:
         messages = [
             {
                 "role": "user",
@@ -76,7 +77,7 @@ class InternVLWrapper(BaseVLMWrapper):
             vision_feature_layer=vision_feature_layer,
             vision_feature_select_strategy=vision_feature_select_strategy,
             return_dict=True,
-        )
+        ).pooler_output
         return image_features
 
     def embed_text(self, input_ids: torch.Tensor) -> torch.Tensor:
@@ -132,9 +133,7 @@ class InternVLWrapper(BaseVLMWrapper):
 
     def get_patch_map(self) -> dict[str, Any]:
         attnLRP = {
-            modeling_internvl.InternVLVisionRMSNorm: partial(
-                patch_method, rms_norm_forward
-            ),
+            modeling_internvl.InternVLVisionRMSNorm: partial(patch_method, rms_norm_forward),
             # modeling_internvl.InternVLVisionMLP: partial(patch_method, gated_mlp_forward),
             Dropout: partial(patch_method, dropout_forward),
             modeling_internvl: patch_attention,
@@ -172,9 +171,7 @@ class InternVLWrapper(BaseVLMWrapper):
         return super().remove_patch()
 
 
-def load_model(
-    model_id="OpenGVLab/InternVL3_5-2B-HF", attn_implementation=None, gpu_node=0
-):
+def load_model(model_id="OpenGVLab/InternVL3_5-2B-HF", attn_implementation=None, gpu_node=0):
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_compute_dtype=torch.bfloat16,

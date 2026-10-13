@@ -1,7 +1,8 @@
 # Exclude standard junk directories, but DO NOT exclude "tests"
 exclude = [
     ".git", ".mypy_cache", ".ruff_cache", ".venv", "venv", "__pycache__", "build", "dist", "datasets", "config",
-    "notebooks", "tests", "site-packages", ".vscode", ".ipynb_checkpoints",
+    "notebooks", "tests", "site-packages", ".vscode", ".ipynb_checkpoints", "src/explainers/igos_utils",
+    "src/explainers/fixlip_utils",
 ]
 
 

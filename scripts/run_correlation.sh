@@ -5,7 +5,7 @@ set -e
 
 GPU_ID=${1:-0}
 EXPLAINERS=${2:-"tam"}
-MODEL_NAME=${3:-"internvl"}
+MODEL_NAME=${3:-"internvl_2b"}
 DATASET_NAME=${4:-"repope"}
 
 
@@ -52,7 +52,7 @@ for MODEL in "${MODELS[@]}"; do
             --gpu_id $GPU_ID \
             --output_dir $OUTPUT_DIR \
             --explainers $EXPLAINERS \
-            --max_samples 200
+            #--max_samples 2
             
         echo "<<< Job Finished. Moving to next configuration..."
         sleep 5 # Give the OS a few seconds to fully flush the GPU VRAM

@@ -1,12 +1,12 @@
 from torch.utils.data import DataLoader
 
 from src.datasets import (
+    COCOGroundingDataset,
+    CVBenchDataset,
+    MMStarDataset,
+    MMVPDataset,
     POPEGroundingDataset,
     POPEOracleDataset,
-    MMVPDataset,
-    COCOGroundingDataset,
-    MMStarDataset,
-    CVBenchDataset,
 )
 
 

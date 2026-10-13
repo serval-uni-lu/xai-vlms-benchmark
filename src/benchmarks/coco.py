@@ -1,20 +1,18 @@
 import argparse
+import contextlib
 import os
 import time
-import traceback
 
 import torch
-import yaml
 from tqdm import tqdm
 
 # --- ABSTRACTED FACTORIES & UTILS ---
 from src.datasets.factory import get_dataloader
 from src.explainers.factory import get_explainer
-from src.explainers.utils import load_yaml, save_to_jsonl, get_processed_indices
 from src.metrics import FaithfulnessMetric, PlausibilityMetric
-from src.metrics.plausibility_utils import OntologyMapper, ids_to_word_groups
 from src.models.factory import load_vlm
-
+from src.utils.plausibility_utils import OntologyMapper, ids_to_word_groups
+from src.utils.xai_utils import get_processed_indices, load_yaml, save_to_jsonl
 
 
 def run_benchmark(args):
@@ -26,21 +24,17 @@ def run_benchmark(args):
     explainer_paths = []
     for exp in args.explainers:
         if exp.endswith(".yaml"):
-            explainer_paths.append(exp)  
+            explainer_paths.append(exp)
         else:
-            explainer_paths.append(f"configs/explainers/{exp}.yaml")  
+            explainer_paths.append(f"configs/explainers/{exp}.yaml")
 
     explainer_configs = [load_yaml(path) for path in explainer_paths]
 
-    output_dir = os.path.join(
-        args.output_dir, model_config["name"], dataset_config["name"]
-    )
+    output_dir = os.path.join(args.output_dir, model_config["name"], dataset_config["name"])
     os.makedirs(output_dir, exist_ok=True)
 
     # 2. Attention "Lookahead" Optimization
-    needs_attention = any(
-        cfg.get("requires_attention", False) for cfg in explainer_configs
-    )
+    needs_attention = any(cfg.get("requires_attention", False) for cfg in explainer_configs)
     attn_mode = "eager" if needs_attention else None
     print(f"[*] Attention Implementation set to: {attn_mode}")
 
@@ -55,16 +49,15 @@ def run_benchmark(args):
         "model_config": model_config,
         "attn_implementation": attn_mode,
         "gpu_node": args.gpu_id,
-        "output_attentions":needs_attention
+        "output_attentions": needs_attention,
     }
 
     # 4. Load Dataset
     dl = get_dataloader(dataset_config)
-    
+
     # Setup Ontology Mapper for Plausibility (Assume dl.dataset has id2name)
     category_dict = getattr(dl.dataset, "id2name", {})
-    mapper = OntologyMapper(coco_categories=category_dict, threshold=0.5,
-                            device=model_wrapper.device)
+    mapper = OntologyMapper(coco_categories=category_dict, threshold=0.5, device=model_wrapper.device)
 
     # 5. Initialize Metrics
     pert_steps = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
@@ -78,21 +71,18 @@ def run_benchmark(args):
         mask_value=0.0,
         filter_keywords=True,
     )
-    
-    plaus_metrics = PlausibilityMetric(
-        ontology_mapper=mapper,
-        category_dict=category_dict
-    )
+
+    plaus_metrics = PlausibilityMetric(ontology_mapper=mapper, category_dict=category_dict)
 
     # ---------------------------------------------------------
     # OUTER LOOP: Iterate over Requested Explainers
     # ---------------------------------------------------------
     for explainer_path in explainer_paths:
-        explainer, explainer_name = get_explainer(
-            explainer_path, model_wrapper, model_config
-        )
+        explainer = None
 
         try:
+            explainer, explainer_name = get_explainer(explainer_path, model_wrapper, model_config)
+
             print(f"\n{'=' * 50}\n[*] Evaluating: {explainer_name} on {model_config['name']}\n{'=' * 50}")
 
             run_name = f"{model_config['name']}_{dataset_config['name']}_{explainer_name}"
@@ -104,9 +94,7 @@ def run_benchmark(args):
             # --- RESUME LOGIC: Find Already Processed Samples ---
             # =========================================================
             processed_indices = get_processed_indices(
-                output_file=output_file,
-                total_dataset_len=len(dl),
-                max_samples=args.max_samples
+                output_file=output_file, total_dataset_len=len(dl), max_samples=args.max_samples
             )
 
             # ---------------------------------------------------------
@@ -131,16 +119,14 @@ def run_benchmark(args):
 
                     # 2. Tokenize and Group Words
                     tokens = pred_results["new_ids"].cpu().unsqueeze(0).tolist()
-                    if isinstance(tokens, int): # Edge case: model generated exactly 1 token
+                    if isinstance(tokens, int):  # Edge case: model generated exactly 1 token
                         tokens = [tokens]
-                        
+
                     words, tokens_id_groups = ids_to_word_groups(tokens, model_wrapper.processor)
-                    
+
                     # 3. Pre-Filter to find Valid Object Targets
-                    valid_words, target_indices = plaus_metrics.get_valid_targets(
-                        words, tokens_id_groups, masks
-                    )
-                    
+                    valid_words, target_indices = plaus_metrics.get_valid_targets(words, tokens_id_groups, masks)
+
                     # Skip if no objects were generated
                     if not target_indices:
                         log_dict = {
@@ -148,7 +134,7 @@ def run_benchmark(args):
                             "image_id": sample.get("image_id", f"unknown_{idx}"),
                             "explainer": explainer_name,
                             "prediction": pred_results.get("text"),
-                            "note": "No valid objects generated."
+                            "note": "No valid objects generated.",
                         }
                         # wandb.log(log_dict, step=idx)
                         save_to_jsonl(log_dict, output_file)
@@ -166,15 +152,15 @@ def run_benchmark(args):
                     text_attrs = None
                     xai_gen_time = time.perf_counter() - start_time
 
-                    # 5. Package XAI Result 
+                    # 5. Package XAI Result
                     # BUG FIX: Because the explainer ONLY generated heatmaps for target_indices,
                     # we do NOT slice [yes_no_tok_idx] here. We pass the whole returned tensor.
                     xai_result = {
                         "inputs": inputs,
                         "target_ids": pred_results["new_ids"].unsqueeze(0),
-                        "pixel_attribution": img_attrs, 
+                        "pixel_attribution": img_attrs,
                         "token_attribution": text_attrs,
-                        "valid_words": valid_words  # Crucial for Plausibility to map rows to words
+                        "valid_words": valid_words,  # Crucial for Plausibility to map rows to words
                     }
 
                     faith_sample = {"image": img, "text": text}
@@ -206,39 +192,39 @@ def run_benchmark(args):
                     print(f"[!] Explainer failed on sample {idx}: {e}")
                     continue
 
-            # Cleanup
-            print(f"[*] Finished {explainer_name}. Cleaning up GPU memory...")
-            if hasattr(explainer, "cleanup"):
-                explainer.cleanup()
-            del explainer
-            torch.cuda.empty_cache()
-            # wandb.finish()
-
         except Exception as e:
             print(f"\n[!] ERROR: Explainer '{explainer_path}' crashed completely!")
             print(f"[!] Exception Details: {e}")
             print("[!] Skipping this explainer and moving to the next one...\n")
-            traceback.print_exc()
 
+            # 2. Tell W&B that this specific run crashed, so it doesn't hang
+            # if wandb.run is not None:
+            #     wandb.finish(exit_code=1)
+
+            # 3. Move on to the next explainer!
+            continue
+
+        finally:
+            # Cleanup
+            print(f"[*] Finished {explainer_path}. Cleaning up GPU memory...")
+            # 1. Safely force-delete the explainer from VRAM if it initialized
             if explainer is not None:
+                print("[*] Cleaning up GPU memory...")
                 if hasattr(explainer, "cleanup"):
-                    try:
+                    with contextlib.suppress(Exception):
                         explainer.cleanup()
-                    except:
-                        pass
+
                 del explainer
             torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run VLM XAI Benchmark")
 
     # CLI Arguments now just point to YAML files!
-    parser.add_argument(
-        "--model_config", type=str, required=True, help="Path to model YAML"
-    )
-    parser.add_argument(
-        "--dataset_config", type=str, required=True, help="Path to dataset YAML"
-    )
+    parser.add_argument("--model_config", type=str, required=True, help="Path to model YAML")
+    parser.add_argument("--dataset_config", type=str, required=True, help="Path to dataset YAML")
     parser.add_argument(
         "--explainers",
         nargs="+",
@@ -247,9 +233,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("--gpu_id", type=int, default=0, help="GPU node to use")
-    parser.add_argument(
-        "--max_samples", type=int, default=None, help="Max samples to evaluate"
-    )
+    parser.add_argument("--max_samples", type=int, default=None, help="Max samples to evaluate")
     parser.add_argument(
         "--output_dir",
         type=str,

@@ -1,6 +1,6 @@
-import os
-import json
 import glob
+import json
+import os
 
 # ==========================================
 # CONFIGURATION
@@ -36,7 +36,7 @@ def prune_unused_coco_images():
 
     print(f"Scanning {len(jsonl_files)} POPE json files...")
     for jsonl_file in jsonl_files:
-        with open(jsonl_file, "r") as f:
+        with open(jsonl_file) as f:
             for line in f:
                 data = json.loads(line)
                 img_id = extract_image_id(data["image"])

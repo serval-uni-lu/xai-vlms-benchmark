@@ -1,19 +1,18 @@
 import argparse
+import contextlib
 import os
 import time
 import traceback
-import json
 
 import torch
-import yaml
 from tqdm import tqdm
 
 # --- ABSTRACTED FACTORIES & UTILS ---
 from src.datasets.factory import get_dataloader
 from src.explainers.factory import get_explainer
-from src.explainers.utils import find_ynvqa_token_index, save_to_jsonl, load_yaml, get_processed_indices
 from src.metrics import FaithfulnessMetric
 from src.models.factory import load_vlm
+from src.utils.xai_utils import find_ynvqa_token_index, get_processed_indices, load_yaml, save_to_jsonl
 
 
 def run_benchmark(args):
@@ -34,14 +33,12 @@ def run_benchmark(args):
 
     # Setup Output Directory
     output_dir = os.path.join(
-        args.output_dir, model_config["name"], f"{dataset_config["name"]}_{dataset_config["pope_type"]}"
+        args.output_dir, model_config["name"], f"{dataset_config['name']}_{dataset_config['pope_type']}"
     )
     os.makedirs(output_dir, exist_ok=True)
 
     # 2. Attention "Lookahead" Optimization
-    needs_attention = any(
-        cfg.get("requires_attention", False) for cfg in explainer_configs
-    )
+    needs_attention = any(cfg.get("requires_attention", False) for cfg in explainer_configs)
     attn_mode = "eager" if needs_attention else None
     print(f"[*] Attention Implementation set to: {attn_mode}")
 
@@ -57,9 +54,8 @@ def run_benchmark(args):
         "model_config": model_config,
         "attn_implementation": attn_mode,
         "gpu_node": args.gpu_id,
-        "output_attentions":needs_attention
+        "output_attentions": needs_attention,
     }
-
 
     # 4. Load Dataset
     dl = get_dataloader(dataset_config)
@@ -81,20 +77,16 @@ def run_benchmark(args):
     # OUTER LOOP: Iterate over Requested Explainers
     # ---------------------------------------------------------
     for explainer_path in explainer_paths:
-        # Load explainer dynamically, injecting model config for CAM layers
-        explainer, explainer_name = get_explainer(
-            explainer_path, model_wrapper, model_config
-        )
+        explainer = None
 
         try:
-            print(
-                f"\n{'=' * 50}\n[*] Evaluating: {explainer_name} on {model_config['name']}\n{'=' * 50}"
-            )
+            # Load explainer dynamically, injecting model config for CAM layers
+            explainer, explainer_name = get_explainer(explainer_path, model_wrapper, model_config)
+
+            print(f"\n{'=' * 50}\n[*] Evaluating: {explainer_name} on {model_config['name']}\n{'=' * 50}")
 
             # Initialize Weights & Biases
-            run_name = (
-                f"{model_config['name']}_{dataset_config['name']}_{dataset_config['pope_type']}_{explainer_name}"
-            )
+            run_name = f"{model_config['name']}_{dataset_config['name']}_{dataset_config['pope_type']}_{explainer_name}"
             # wandb.init(
             #     project="vlm-xai-benchmark",
             #     name=run_name,
@@ -112,9 +104,7 @@ def run_benchmark(args):
             # --- RESUME LOGIC: Find Already Processed Samples ---
             # =========================================================
             processed_indices = get_processed_indices(
-                output_file=output_file,
-                total_dataset_len=len(dl),
-                max_samples=args.max_samples
+                output_file=output_file, total_dataset_len=len(dl), max_samples=args.max_samples
             )
 
             # ---------------------------------------------------------
@@ -126,7 +116,7 @@ def run_benchmark(args):
 
                 img = sample["image"]
                 question = sample["question"]
-                image_id = sample.get("image_id", f"unknown_{idx}"),
+                image_id = (sample.get("image_id", f"unknown_{idx}"),)
 
                 # =====================================================
                 # --- RESUME LOGIC: Skip if we already did this one ---
@@ -134,9 +124,8 @@ def run_benchmark(args):
                 # current_key = f"{image_id}_{question}"
                 # print(current_key)
                 if idx in processed_indices:
-                    continue # Skip to the next iteration of the loop!
+                    continue  # Skip to the next iteration of the loop!
                 # =====================================================
-                
 
                 try:
                     # 1. Forward Pass
@@ -170,12 +159,13 @@ def run_benchmark(args):
                         "token_attribution": text_attrs[0:1],
                     }
 
-                    faith_sample = {"image": img, "text": question}
+                    if args.zero_state:
+                        faith_sample = {"image": None, "text": None}
+                    else:
+                        faith_sample = {"image": img, "text": question}
 
                     # 4. Compute Metrics
-                    faith_scores = faith_metrics.compute(
-                        model_wrapper, faith_sample, xai_result
-                    )
+                    faith_scores = faith_metrics.compute(model_wrapper, faith_sample, xai_result)
 
                     # 5. Logging
                     log_dict = {
@@ -196,33 +186,15 @@ def run_benchmark(args):
                     torch.cuda.empty_cache()
 
                 except Exception as e:
-                    print(f"[!] Explainer failed on sample {idx}: {e}")
+                    print(f"[!] Explainer {explainer_name} failed on sample {idx}: {e}")
                     traceback.print_exc()
                     continue
-
-            # Cleanup before moving to the next explainer
-            print(f"[*] Finished {explainer_name}. Cleaning up GPU memory...")
-            if hasattr(explainer, "cleanup"):
-                explainer.cleanup()
-            del explainer
-            torch.cuda.empty_cache()
-            # wandb.finish()
 
         # --- THE NEW CRASH CATCHER ---
         except Exception as e:
             print(f"\n[!] ERROR: Explainer '{explainer_path}' crashed completely!")
             print(f"[!] Exception Details: {e}")
             print("[!] Skipping this explainer and moving to the next one...\n")
-
-            # 1. Safely force-delete the explainer from VRAM if it partially initialized
-            if explainer is not None:
-                if hasattr(explainer, "cleanup"):
-                    try:
-                        explainer.cleanup()
-                    except:
-                        pass
-                del explainer
-            torch.cuda.empty_cache()
 
             # 2. Tell W&B that this specific run crashed, so it doesn't hang
             # if wandb.run is not None:
@@ -231,18 +203,25 @@ def run_benchmark(args):
             # 3. Move on to the next explainer!
             continue
 
+        finally:
+            print(f"[*] Finished {explainer_path}. Cleaning up GPU memory...")
+            # 1. Safely force-delete the explainer from VRAM if it initialized
+            if explainer is not None:
+                print("[*] Cleaning up GPU memory...")
+                if hasattr(explainer, "cleanup"):
+                    with contextlib.suppress(Exception):
+                        explainer.cleanup()
+
+                del explainer
+            torch.cuda.empty_cache()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run VLM XAI Benchmark")
 
     # CLI Arguments now just point to YAML files!
-    parser.add_argument(
-        "--model_config", type=str, required=True, help="Path to model YAML"
-    )
-    parser.add_argument(
-        "--dataset_config", type=str, required=True, help="Path to dataset YAML"
-    )
+    parser.add_argument("--model_config", type=str, required=True, help="Path to model YAML")
+    parser.add_argument("--dataset_config", type=str, required=True, help="Path to dataset YAML")
     parser.add_argument(
         "--explainers",
         nargs="+",
@@ -251,15 +230,15 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("--gpu_id", type=int, default=0, help="GPU node to use")
-    parser.add_argument(
-        "--max_samples", type=int, default=None, help="Max samples to evaluate"
-    )
+    parser.add_argument("--max_samples", type=int, default=None, help="Max samples to evaluate")
     parser.add_argument(
         "--output_dir",
         type=str,
         default="logs/results_test_baseline",
         help="Where to save logs",
     )
+    parser.add_argument("--zero-state", action="store_true", help="Use zero-state baseline (None image/text) for evaluation")
+
 
     args = parser.parse_args()
 

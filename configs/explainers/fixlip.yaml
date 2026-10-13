@@ -1,0 +1,20 @@
+name: "FIxLIP"
+class: "FIxLIPExplainer"
+requires_attention: False
+kwargs:
+  budget: 10000
+  approximation_type: "proxyshap"
+  mode: "banzhaf"
+  # adjustment: "msr" # Method for adjusting the proxy model's predictions to better match the true value function. Options are "none" (no adjustment), "msr","svarm" (statified MSR), "kernel" (KernelSHAPIQ).
+  max_order: 2
+  batch_size: 64
+  mask_value: 0.0
+  patch_group_size: 2
+  p_weight: 0.5
+  group_text_by_word: True
+  seed: 42
+  proxy_xgboost_kwargs:
+    n_estimators: 2000
+    learning_rate: 0.05
+    max_depth: 5
+    reg_lambda: 10

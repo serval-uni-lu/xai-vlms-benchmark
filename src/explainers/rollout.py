@@ -4,8 +4,8 @@ import torch
 import torch.nn.functional as F
 
 from src.explainers import BaseExplainer
-from src.explainers.utils import align_llm_visuals_to_pixels
 from src.models import BaseVLMWrapper
+from src.utils.xai_utils import align_llm_visuals_to_pixels
 
 
 def stitch_chunks_to_matrix(chunk_list):
@@ -50,8 +50,18 @@ class RolloutExplainer(BaseExplainer):
         # 1. Safely extract the weights (Stashed OR from output tuple)
         attn_data = getattr(module, "saved_attn_weights", None)
         if attn_data is None:
-            # Fallback to standard Hugging Face tuple output
-            attn_data = output[-1]
+            if isinstance(output, tuple) and len(output) > 1 and output[1] is not None:
+                attn_data = output[1]
+            else:
+                # ==========================================================
+                # QWEN 3.5 HYBRID ARCHITECTURE / MULTI-GPU FIX
+                # If a layer (like a Gated DeltaNet) does not physically 
+                # compute an attention matrix, or if accelerate stripped it,
+                # we gracefully skip it and let Rollout calculate over the 
+                # remaining Full Attention layers.
+                # ==========================================================
+                return
+
 
         # 2. Force it into a list so we can handle standard models and Qwen interchangeably
         chunk_list = attn_data if isinstance(attn_data, list) else [attn_data]
@@ -61,16 +71,12 @@ class RolloutExplainer(BaseExplainer):
             layer_grads = [None] * len(chunk_list)
 
             def create_hook(idx, target_list):
-                return lambda grad: target_list.__setitem__(
-                    idx, grad.clone().detach().cpu()
-                )
+                return lambda grad: target_list.__setitem__(idx, grad.clone().detach().cpu())
 
             for i, chunk in enumerate(chunk_list):
                 if chunk is not None:
                     if not chunk.requires_grad:
-                        print(
-                            f"[!] WARNING: Attention chunk {i} does not require grad!"
-                        )
+                        print(f"[!] WARNING: Attention chunk {i} does not require grad!")
                     else:
                         chunk.retain_grad()
                         chunk.register_hook(create_hook(i, layer_grads))
@@ -83,6 +89,16 @@ class RolloutExplainer(BaseExplainer):
 
         # Cleanup stash to prevent memory leaks
         module.saved_attn_weights = None
+    
+    # def _force_attention_pre_hook(self, module, args, kwargs):
+    #     """
+    #     Surgically injects output_attentions=True into the kwargs 
+    #     just milliseconds before the forward pass runs, bypassing multi-GPU wrappers.
+    #     """
+    #     sig = inspect.signature(module.forward)
+    #     if "output_attentions" in sig.parameters:
+    #         kwargs["output_attentions"] = True
+    #     return args, kwargs
 
     def _vision_hook(self, module, input, output):
         self._generic_hook(module, output, self.vision_attentions, self.vision_grads)
@@ -93,15 +109,26 @@ class RolloutExplainer(BaseExplainer):
     def register_hooks(self):
         self.clear_hooks()
         for _, module in self.model.named_modules():
-            if (
-                self.wrapper.vision_module_name
-                and self.wrapper.vision_module_name in str(type(module))
-            ):
+            if self.wrapper.vision_module_name and self.wrapper.vision_module_name in str(type(module)):
                 self.hooks.append(module.register_forward_hook(self._vision_hook))
-            elif self.wrapper.llm_module_name and self.wrapper.llm_module_name in str(
-                type(module)
-            ):
+            elif self.wrapper.llm_module_name and self.wrapper.llm_module_name in str(type(module)):
                 self.hooks.append(module.register_forward_hook(self._llm_hook))
+    
+    # def register_hooks(self):
+    #     self.clear_hooks()
+    #     for _, module in self.model.named_modules():
+    #         # --- VISION HOOKS ---
+    #         if self.wrapper.vision_module_name and self.wrapper.vision_module_name in str(type(module)):
+    #             # 1. Inject the flag BEFORE the layer runs
+    #             self.hooks.append(module.register_forward_pre_hook(self._force_attention_pre_hook, with_kwargs=True))
+    #             # 2. Catch the matrix AFTER the layer runs
+    #             self.hooks.append(module.register_forward_hook(self._vision_hook))
+                
+    #         # --- LLM HOOKS ---
+    #         elif self.wrapper.llm_module_name and self.wrapper.llm_module_name in str(type(module)):
+    #             # Do the same for LLM layers to be bulletproof
+    #             self.hooks.append(module.register_forward_pre_hook(self._force_attention_pre_hook, with_kwargs=True))
+    #             self.hooks.append(module.register_forward_hook(self._llm_hook))
 
     def clear_hooks(self):
         for hook in self.hooks:
@@ -138,9 +165,7 @@ class RolloutExplainer(BaseExplainer):
     def _compute_rollout_math(self, attentions, gradients=None) -> torch.Tensor:
         """The core mathematical engine for Rollout with aggressive VRAM management."""
         if not attentions:
-            raise ValueError(
-                "Need attention weights to compute Attention (Grad)Rollout"
-            )
+            raise ValueError("Need attention weights to compute Attention (Grad)Rollout")
 
         math_device = getattr(self, "device", "cuda")
 
@@ -151,16 +176,14 @@ class RolloutExplainer(BaseExplainer):
         if gradients is not None and len(gradients) > 0:
             # GRADIENT ROLLOUT (Chefer et al. 2021)
 
-            for layer_attns, layer_grads in zip(attentions, gradients):
+            for layer_attns, layer_grads in zip(attentions, gradients, strict=False):
                 processed_chunks = []
 
                 # --- OOM FIX: DO THE MATH ON TINY CHUNKS BEFORE STITCHING ---
-                for a, g in zip(layer_attns, layer_grads):
+                for a, g in zip(layer_attns, layer_grads, strict=False):
                     # Move just this tiny chunk to GPU
                     a_gpu = a.to(math_device)
-                    g_gpu = (
-                        g.to(math_device) if g is not None else torch.zeros_like(a_gpu)
-                    )
+                    g_gpu = g.to(math_device) if g is not None else torch.zeros_like(a_gpu)
 
                     # Multiply and ReLU
                     grad_attn_chunk = a_gpu * g_gpu
@@ -252,19 +275,37 @@ class RolloutExplainer(BaseExplainer):
         inputs["input_ids"] = full_ids.clone().unsqueeze(0)  # (batch, seq_len)
         inputs["attention_mask"] = torch.ones_like(inputs["input_ids"])
 
+        # --- MULTIMODAL ROPE FIX FOR QWEN ---
+        # If the model requires mm_token_type_ids, we must expand it to match the new input_ids length.
+        # Since all generated tokens are text, we pad it with the text type (0).
+        if "mm_token_type_ids" in inputs:
+            orig_mm_types = inputs["mm_token_type_ids"]
+            
+            # Create a tensor of 0s (text type) for the newly generated answer tokens
+            pad_types = torch.zeros(
+                (orig_mm_types.shape[0], num_ans_tokens), 
+                dtype=orig_mm_types.dtype, 
+                device=orig_mm_types.device
+            )
+            
+            # Concatenate them together so it matches the length of the full_ids
+            inputs["mm_token_type_ids"] = torch.cat([orig_mm_types, pad_types], dim=1)
+            
+        # Optional: Also catch position_ids if they were explicitly passed by the processor
+        if "position_ids" in inputs:
+            # We delete it so Qwen is forced to dynamically recalculate the correct 
+            # position IDs using the newly padded mm_token_type_ids
+            del inputs["position_ids"]
+
         with self.manage_explainability_state():
             if self.requires_grad:  # GradientxRollout
                 outputs = self.model(**inputs, output_attentions=True)
-                logits = outputs.logits[
-                    :, t_start - 1 : t_end - 1, :
-                ]  # (1, num_ans_tokens, vocab_size)
+                logits = outputs.logits[:, t_start - 1 : t_end - 1, :]  # (1, num_ans_tokens, vocab_size)
 
                 new_ids = full_ids[t_start:t_end]
                 new_ids = new_ids.unsqueeze(0).unsqueeze(-1)
 
-                target_logits = logits.gather(dim=-1, index=new_ids).squeeze(
-                    -1
-                )  # (1, num_ans_tokens)
+                target_logits = logits.gather(dim=-1, index=new_ids).squeeze(-1)  # (1, num_ans_tokens)
 
                 # --- TARGETED GRADIENT FIX ---
                 # Only compute gradients for the specific tokens we care about!
@@ -273,12 +314,8 @@ class RolloutExplainer(BaseExplainer):
                 self.model.zero_grad()
                 answer_score.backward(retain_graph=False)
 
-                v_rollout = self._compute_rollout_math(
-                    self.vision_attentions, self.vision_grads
-                )
-                t_rollout = self._compute_rollout_math(
-                    self.llm_attentions, self.llm_grads
-                )
+                v_rollout = self._compute_rollout_math(self.vision_attentions, self.vision_grads)
+                t_rollout = self._compute_rollout_math(self.llm_attentions, self.llm_grads)
                 v_rollout = v_rollout.detach().cpu()
                 t_rollout = t_rollout.detach().cpu()
             else:  # Standard Rollout
@@ -291,7 +328,7 @@ class RolloutExplainer(BaseExplainer):
         image_token_id = self.model.config.image_token_id
         is_image_mask = full_ids == image_token_id
         is_image_mask = is_image_mask.cpu()
-        is_text_mask = ~is_image_mask
+        # is_text_mask = ~is_image_mask
 
         prompt_mask = (
             torch.arange(
@@ -299,7 +336,7 @@ class RolloutExplainer(BaseExplainer):
             )
             < t_start
         )
-        final_text_mask = is_text_mask & prompt_mask
+        # final_text_mask = is_text_mask & prompt_mask
         final_image_mask = is_image_mask & prompt_mask
 
         # --- SUBSETTING FIX ---
@@ -326,9 +363,7 @@ class RolloutExplainer(BaseExplainer):
             )
 
         elif "qwen" in model_type:
-            text_to_vit_attn = align_llm_visuals_to_pixels(
-                text_to_image_attn, inputs, config=self.wrapper.model.config
-            )
+            text_to_vit_attn = align_llm_visuals_to_pixels(text_to_image_attn, inputs, config=self.wrapper.model.config)
             pixel_attribution = torch.matmul(text_to_vit_attn, v_rollout)
 
         elif "llava" in model_type:
@@ -336,21 +371,16 @@ class RolloutExplainer(BaseExplainer):
                 v_rollout = v_rollout[1:, 1:]
 
             patch_attribution = torch.matmul(text_to_image_attn, v_rollout)
-            pixel_attribution = align_llm_visuals_to_pixels(
-                patch_attribution, inputs, config=self.wrapper.model.config
-            )
+            pixel_attribution = align_llm_visuals_to_pixels(patch_attribution, inputs, config=self.wrapper.model.config)
 
         else:
-            raise NotImplementedError(
-                f"This model {model_type} is not yet implemented for Rollout !"
-            )
+            raise NotImplementedError(f"This model {model_type} is not yet implemented for Rollout !")
 
         if average:
             pixel_attribution = pixel_attribution.mean(dim=0)
 
         self.clear_hooks()
         return token_attribution, pixel_attribution
-
 
     def _fuse_and_upsample_internvl(self, text_to_image_attn, v_rollout, pixel_values):
         """
@@ -367,7 +397,7 @@ class RolloutExplainer(BaseExplainer):
                 v_rollout = v_rollout.squeeze(1)
             elif v_rollout.shape[0] == 1:
                 v_rollout = v_rollout.squeeze(0)
-                
+
         ndim = v_rollout.ndim
 
         # 1. Determine Tile Count & Strip the CLS token from ViT Rollout
@@ -376,16 +406,16 @@ class RolloutExplainer(BaseExplainer):
             num_tiles = v_rollout.shape[0]
             if v_rollout.shape[1] == 1025:
                 v_rollout = v_rollout[:, 1:, 1:]
-                
+
         elif ndim == 2:
             # 2D case: (1025, 1025) -> (1, 1024, 1024)
             num_tiles = 1
             if v_rollout.shape[0] == 1025:
                 v_rollout = v_rollout[1:, 1:]
-            
+
             # Add the batch/tile dimension so torch.bmm works gracefully below
-            v_rollout = v_rollout.unsqueeze(0) 
-            
+            v_rollout = v_rollout.unsqueeze(0)
+
         else:
             print(v_rollout.shape)
             print(text_to_image_attn.shape)
@@ -430,4 +460,3 @@ class RolloutExplainer(BaseExplainer):
         # 8. Format output to exactly what the perturbation metric expects
         # Shape: (gen_len, num_tiles, H, W)
         return pixel_attr_upscaled.view(gen_len, num_tiles, target_h, target_w)
-

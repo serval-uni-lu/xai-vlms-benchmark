@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from types import ModuleType
-from typing import Any, Generic, Literal, TypeVar, Union
+from typing import Any, Literal
 
 import torch
 import torch.nn as nn
@@ -8,27 +8,26 @@ from transformers import (
     LlavaForConditionalGeneration,
     PreTrainedModel,
     Qwen2_5_VLForConditionalGeneration,
+    Qwen3_5ForConditionalGeneration,
 )
 
 # Define a Union of all supported VLM classes
 # This tells VS Code "The model is strictly one of these
 # not just a generic Module"
-SupportedVLM = Union[
-    LlavaForConditionalGeneration,
-    Qwen2_5_VLForConditionalGeneration,
-    PreTrainedModel,  # Fallback
-]
-
-# Create a Type Variable bound to that Union
-ModelT = TypeVar("ModelT", bound=SupportedVLM)
+#SupportedVLM = LlavaForConditionalGeneration | Qwen2_5_VLForConditionalGeneration | InternVLForConditionalGeneration
+SupportedVLM = LlavaForConditionalGeneration | Qwen2_5_VLForConditionalGeneration | PreTrainedModel | Qwen3_5ForConditionalGeneration
 
 
-class BaseVLMWrapper(nn.Module, Generic[ModelT], ABC):
+# 2. Updated Class Definition (Python 3.12+)
+# We use [ModelT: SupportedVLM] directly in the class name
+class BaseVLMWrapper[ModelT: SupportedVLM](nn.Module, ABC):
     def __init__(self, model: ModelT, processor: Any):
         super().__init__()
         self.model = model
         self.processor = processor
-        self.model.eval()  # XAI is inference-only
+        self.model.eval()
+        self.model_config = {}
+
 
     @property
     def device(self) -> torch.device:
@@ -212,6 +211,7 @@ class BaseVLMWrapper(nn.Module, Generic[ModelT], ABC):
         use_cache: bool = False,
         **kwargs,
     ) -> dict[str, Any]:
+        #assert hasattr(self.model, "generate"), "Model must support .generate()"
 
         # Generate
         with torch.no_grad():
@@ -231,11 +231,7 @@ class BaseVLMWrapper(nn.Module, Generic[ModelT], ABC):
         prompt_len = inputs["input_ids"].shape[1]
         # Note: In some HF models, generate returns full sequence; others just new tokens.
         # You need a safety check here depending on model family.
-        new_ids = (
-            generated_ids[prompt_len:]
-            if generated_ids.shape[0] > prompt_len
-            else generated_ids
-        )
+        new_ids = generated_ids[prompt_len:] if generated_ids.shape[0] > prompt_len else generated_ids
 
         decoded_text = self.processor.batch_decode(
             new_ids.unsqueeze(0),

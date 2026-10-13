@@ -1,7 +1,9 @@
 import pandas as pd
-import torch
 from torch.utils.data import Dataset
-from datasets import load_dataset
+
+from datasets import load_dataset, DatasetDict
+from datasets import Dataset as HFDataset
+
 
 class MMVPDataset(Dataset):
     def __init__(self, hf_path="MMVP/MMVP", split="train", transform=None):
@@ -21,15 +23,18 @@ class MMVPDataset(Dataset):
         self.metadata = pd.read_csv(csv_url)
 
     def __len__(self):
-        return self.hf_dataset.num_rows
+        if isinstance(self.hf_dataset, (HFDataset, DatasetDict)):
+            return len(self.hf_dataset)
+        else:
+            raise TypeError("Dataset is streaming (IterableDataset) and has no length.")
 
-    def __getitem__(self, idx):
+    def __getitem__(self, index):
         # HF dataset items contain {'image': <PIL>, 'label': ...}
-        item = self.hf_dataset[idx]
+        item = self.hf_dataset[index]
         
         # Metadata contains ['Index', 'Question', 'Options', 'Correct Answer']
         # We assume the HF dataset order matches the CSV Index
-        meta = self.metadata.iloc[idx]
+        meta = self.metadata.iloc[index]
 
         image = item['image'] #.convert("RGB")
         

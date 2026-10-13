@@ -1,7 +1,10 @@
-import pandas as pd
-import torch
 from torch.utils.data import Dataset
-from datasets import load_dataset
+
+from datasets import load_dataset, DatasetDict
+from datasets import Dataset as HFDataset
+
+
+
 
 class MMStarDataset(Dataset):
     def __init__(self, hf_path="Lin-Chen/MMStar", split="val"):
@@ -11,17 +14,21 @@ class MMStarDataset(Dataset):
             split (str): The dataset split to load.
         """
         # 1. Load the actual images/data from HF
-        self.hf_dataset = load_dataset(hf_path, split=split)
+        self.hf_dataset = load_dataset(hf_path, split=split, streaming=False)
 
     def __len__(self):
-        return len(self.hf_dataset)
+        if isinstance(self.hf_dataset, (HFDataset, DatasetDict)):
+            return len(self.hf_dataset)
+        else:
+            raise TypeError("Dataset is streaming (IterableDataset) and has no length.")
+        
 
-    def __getitem__(self, idx):
-        item = self.hf_dataset[idx]
+    def __getitem__(self, index):
+        item = self.hf_dataset[index]
         
 
         image = item['image'] #.convert("RGB")
-        index = item["index"]
+        idx = item["index"]
         question = item['question']
         meta_info = item['meta_info']
         label = item["answer"]
@@ -31,7 +38,7 @@ class MMStarDataset(Dataset):
             "image": image,
             "question": question,
             "label": label,
-            "index": index,
+            "index": idx,
             "metadata": meta_info,
             "category": category,
         }

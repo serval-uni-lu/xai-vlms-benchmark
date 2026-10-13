@@ -18,7 +18,8 @@ class LlavaWrapper(BaseVLMWrapper):
         super().__init__(model, processor)
         # self._get_original_attention_forward()
 
-    def get_inputs(self, image, text) -> dict[str, Any]:
+    def get_inputs(self, image, text,
+                    ) -> dict[str, Any]:
         messages = [
             {
                 "role": "user",
@@ -75,7 +76,7 @@ class LlavaWrapper(BaseVLMWrapper):
             vision_feature_layer=vision_feature_layer,
             vision_feature_select_strategy=vision_feature_select_strategy,
             return_dict=True,
-        )
+        ).pooler_output
         return image_features
 
     def embed_text(self, input_ids: torch.Tensor) -> torch.Tensor:
@@ -88,9 +89,7 @@ class LlavaWrapper(BaseVLMWrapper):
         input_ids: torch.Tensor,
     ) -> torch.Tensor:
 
-        image_embeds = torch.cat(image_embeds, dim=0).to(
-            text_embeds.device, text_embeds.dtype
-        )
+        image_embeds = torch.cat(image_embeds, dim=0).to(text_embeds.device, text_embeds.dtype)
         special_image_mask = self.model.model.get_placeholder_mask(
             input_ids, inputs_embeds=text_embeds, image_features=image_embeds
         )

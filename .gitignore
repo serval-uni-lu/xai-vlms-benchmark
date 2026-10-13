@@ -11,6 +11,9 @@ wheels/
 
 # Folders
 datasets/*
+data/*
+notebooks/*
+!notebooks/quickstart.ipynb
 logs/
 figs/
 !src/datasets/

@@ -4,13 +4,13 @@
 set -e 
 
 GPU_ID=${1:-0}
-EXPLAINERS=${2:-"tam"}
-MODEL_NAME=${3:-"internvl"}
-DATASET_NAME=${4:-"mmstar"}
+MODEL_NAME=${2:-"internvl_2b"}
+DATASET_NAME=${3:-"mmstar"}
+EXPLAINERS=${4:-"random gradcam tam llavacam inputxgradients integratedgradients rollout gradxrollout lxt"}
 
 
 echo "========================================="
-echo "   Starting VLM XAI Benchmark Suite      "
+echo "   Starting Sensitivity Evaluation      "
 echo "========================================="
 
 
@@ -19,25 +19,21 @@ echo "========================================="
 MODELS="configs/models/${MODEL_NAME}.yaml"
 
 if [ ! -f "$MODELS" ]; then
-    echo "ERROR : The file $MODEL_CONFIG does not exist !"
+    echo "ERROR : The file $MODEL_NAME does not exist !"
     exit 1
 fi
 
 DATASETS="configs/datasets/${DATASET_NAME}.yaml"
 
 if [ ! -f "$DATASETS" ]; then
-    echo "ERROR : The file $MODEL_CONFIG does not exist !"
+    echo "ERROR : The file $DATASET_NAME does not exist !"
     exit 1
 fi
 
 OUTPUT_DIR=(
-    "logs/results"
+    "logs/sensitivity"
 )
 
-# Pass all explainers as a single string separated by spaces
-# #EXPLAINERS="gradcam lxt integratedgradients"
-# EXPLAINERS="tam inputxgradients gradxrollout " 
-# #EXPLAINERS="random llavacam rollout"
 
 
 # 2. Nested loops to run every combination
@@ -50,15 +46,12 @@ for MODEL in "${MODELS[@]}"; do
         echo ">>> Executing module: src.benchmarks.$DATASET_NAME"
         
         # 3. Execute the Python script
-        # Notice we omitted --max_samples so it runs the whole dataset!
-        #python -m src.benchmarks.repope \
-        python -m src.benchmarks."${DATASET_NAME}" \
+        python -m src.benchmarks.f_syn_sensitivity \
             --model_config "$MODEL" \
             --dataset_config "$DATASET" \
             --gpu_id $GPU_ID \
             --output_dir $OUTPUT_DIR \
             --explainers $EXPLAINERS \
-            --max_samples 1000
             
         echo "<<< Job Finished. Moving to next configuration..."
         sleep 5 # Give the OS a few seconds to fully flush the GPU VRAM

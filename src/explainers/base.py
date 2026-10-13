@@ -48,13 +48,13 @@ class BaseExplainer(ABC):
         """
         # 1. Call the subclass's unique logic
         text_attrs, img_attrs = self._attribute(image, text, target_indices, **kwargs)
-        
+
         # 2. Enforce safety
         if isinstance(text_attrs, torch.Tensor):
             text_attrs = text_attrs.detach().cpu().float()
         if isinstance(img_attrs, torch.Tensor):
             img_attrs = img_attrs.detach().cpu().float()
-            
+
         return text_attrs, img_attrs
 
     @abstractmethod
@@ -66,4 +66,3 @@ class BaseExplainer(ABC):
         Implement the specific XAI logic here.
         """
         pass
-

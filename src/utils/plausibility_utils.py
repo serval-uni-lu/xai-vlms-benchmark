@@ -20,9 +20,7 @@ class OntologyMapper:
         self.category_names = list(coco_categories.values())
 
         # Pre-compute embeddings for the 80 COCO classes (only happens once)
-        self.coco_embeddings = self.model.encode(
-            self.category_names, convert_to_tensor=True
-        )
+        self.coco_embeddings = self.model.encode(self.category_names, convert_to_tensor=True)
 
     def map_word(self, word):
         """Maps an open-vocabulary word to the closest COCO category ID."""
@@ -48,10 +46,10 @@ def is_english_punctuation(char):
 
 
 def is_chinese_char_or_punctuation(char):
-    for ch in char:
-        if "CJK" in unicodedata.name(ch, ""):
-            return True
-    return False
+    # for ch in char:
+    #     if "CJK" in unicodedata.name(ch, ""):
+    #         return True
+    return any("CJK" in unicodedata.name(ch, "") for ch in char)
 
 
 def ids_to_word_groups(ids, processor):
@@ -107,5 +105,3 @@ def pool_heatmaps(heatmaps_tensor, token_indices, method="max"):
         raise ValueError("Method must be 'max' or 'mean'")
 
     return pooled_heatmap
-
-

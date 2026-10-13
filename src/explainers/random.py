@@ -1,4 +1,3 @@
-
 import torch
 
 from src.explainers import BaseExplainer
@@ -67,9 +66,7 @@ class RandomExplainer(BaseExplainer):
         else:
             indices_to_compute = target_indices
 
-        indices_to_compute = [
-            idx for idx in indices_to_compute if idx < seq_len_generated
-        ]
+        indices_to_compute = [idx for idx in indices_to_compute if idx < seq_len_generated]
         num_targets = len(indices_to_compute)
 
         # 2. Set Seed for Reproducibility
@@ -79,26 +76,20 @@ class RandomExplainer(BaseExplainer):
         # 3. Generate Random Token Attributions
         # We only generate noise for the specific number of target tokens!
         prompt_len = input_ids.shape[1]
-        token_attributions = torch.rand(
-            (num_targets, prompt_len), device=self.device, generator=generator
-        )
+        token_attributions = torch.rand((num_targets, prompt_len), device=self.device, generator=generator)
 
         # 4. Generate Random Pixel Attributions based on model architecture
-        ndim = pixel_values.ndim
+        # ndim = pixel_values.ndim
 
         if "internvl" in model_type:
             # --- InternVL ---
             _, num_tiles, _, h, w = pixel_values.shape
-            pixel_attributions = torch.rand(
-                (num_targets, num_tiles, h, w), device=self.device, generator=generator
-            )
+            pixel_attributions = torch.rand((num_targets, num_tiles, h, w), device=self.device, generator=generator)
 
         elif "llava" in model_type:
             # --- Standard CNN/ViT (LLaVA) ---
             _, _, h, w = pixel_values.shape
-            pixel_attributions = torch.rand(
-                (num_targets, h, w), device=self.device, generator=generator
-            )
+            pixel_attributions = torch.rand((num_targets, h, w), device=self.device, generator=generator)
 
         elif "qwen" in model_type:
             # --- Qwen2-VL ---
@@ -107,16 +98,10 @@ class RandomExplainer(BaseExplainer):
             if "image_grid_thw" in inputs:
                 grid_thw = inputs["image_grid_thw"][0].cpu().numpy().tolist()
                 h, w = grid_thw[1], grid_thw[2]
-                pixel_attributions = torch.rand(
-                    (num_targets, h * w), device=self.device, generator=generator
-                )
+                pixel_attributions = torch.rand((num_targets, h * w), device=self.device, generator=generator)
             else:
-                pixel_attributions = torch.rand(
-                    (num_targets, num_patches), device=self.device, generator=generator
-                )
+                pixel_attributions = torch.rand((num_targets, num_patches), device=self.device, generator=generator)
         else:
-            raise ValueError(
-                f"pixel_values shape {pixel_values.shape} is not supported."
-            )
+            raise ValueError(f"pixel_values shape {pixel_values.shape} is not supported.")
 
         return token_attributions, pixel_attributions

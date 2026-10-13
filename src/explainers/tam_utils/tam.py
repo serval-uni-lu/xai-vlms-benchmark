@@ -5,7 +5,11 @@ from typing import Any
 
 import cv2
 
-# import fitz
+try:
+    import fitz
+except ImportError:
+    fitz = None
+
 import numpy as np
 import torch
 from numpy.lib.stride_tricks import sliding_window_view
@@ -27,15 +31,11 @@ def vectorized_rank_gaussian_filter(img_3d, kernel_size=3):
     pad_width = kernel_size // 2
 
     # 1. Pad only the spatial dimensions (H and W), leave the tile dimension alone
-    padded = np.pad(
-        img_3d, ((0, 0), (pad_width, pad_width), (pad_width, pad_width)), mode="reflect"
-    )
+    padded = np.pad(img_3d, ((0, 0), (pad_width, pad_width), (pad_width, pad_width)), mode="reflect")
 
     # 2. Extract all sliding windows simultaneously
     # Shape becomes: (num_tiles, H, W, kernel_size, kernel_size)
-    windows = sliding_window_view(
-        padded, window_shape=(kernel_size, kernel_size), axis=(1, 2)
-    )
+    windows = sliding_window_view(padded, window_shape=(kernel_size, kernel_size), axis=(1, 2))
 
     # Flatten the 3x3 window into 9 elements: (num_tiles, H, W, 9)
     windows = windows.reshape(T, H, W, -1)
@@ -95,9 +95,7 @@ def rank_guassian_filter(img, kernel_size=3):
 
     for i in range(pad_width, img.shape[0] + pad_width):
         for j in range(pad_width, img.shape[1] + pad_width):
-            window = padded_img[
-                i - pad_width : i + pad_width + 1, j - pad_width : j + pad_width + 1
-            ]
+            window = padded_img[i - pad_width : i + pad_width + 1, j - pad_width : j + pad_width + 1]
 
             sorted_window = np.sort(window.flatten())
             mean = sorted_window.mean()
@@ -172,44 +170,34 @@ def generate_latex(words, relevances, cmap="bwr", font=r"{18pt}{21pt}"):
 
         # relevance >= 0 for earlier context tokens (jet colors)
         if relevance >= 0:
-            jet_colormap = cv2.applyColorMap(
-                np.arange(256, dtype=np.uint8), cv2.COLORMAP_JET
-            )
+            jet_colormap = cv2.applyColorMap(np.arange(256, dtype=np.uint8), cv2.COLORMAP_JET)
             b, g, r = jet_colormap[int(relevances[i] * 255)][0].tolist()
             if word[:2] == "$ " and word[-1] == "$":  # candidates
-                latex_code += (
-                    f" \\textbf{{\\textcolor[RGB]{{{r},{g},{b}}}{{\\strut {word}}}}}, "
-                )
+                latex_code += f" \\textbf{{\\textcolor[RGB]{{{r},{g},{b}}}{{\\strut {word}}}}}, "
             elif word.startswith("▁") or word.startswith("Ġ") or word.startswith(" "):
                 word = word.replace("▁", " ").replace("Ġ", " ")
-                latex_code += (
-                    f" \\textbf{{\\textcolor[RGB]{{{r},{g},{b}}}{{\\strut {word}}}}}"
-                )
+                latex_code += f" \\textbf{{\\textcolor[RGB]{{{r},{g},{b}}}{{\\strut {word}}}}}"
             else:
-                latex_code += (
-                    f"\\textbf{{\\textcolor[RGB]{{{r},{g},{b}}}{{\\strut {word}}}}}"
-                )
+                latex_code += f"\\textbf{{\\textcolor[RGB]{{{r},{g},{b}}}{{\\strut {word}}}}}"
 
         # for current explained token (black)
         elif relevance == -1:
             if word.startswith("▁") or word.startswith("Ġ") or word.startswith(" "):
                 word = word.replace("▁", " ").replace("Ġ", " ")
-                latex_code += f" \\textbf{{\\colorbox[RGB]{{{0},{0},{0}}}{{\\textcolor[RGB]{{{255},{255},{255}}}{{\\strut {word}}}}}}}"
+                latex_code += f" \\textbf{{\\colorbox[RGB]{{{0},{0},{0}}}{{\\textcolor[RGB]{{{255},\
+                    {255},{255}}}{{\\strut {word}}}}}}}"
             else:
-                latex_code += f"\\textbf{{\\colorbox[RGB]{{{0},{0},{0}}}{{\\textcolor[RGB]{{{255},{255},{255}}}{{\\strut {word}}}}}}}"
+                latex_code += f"\\textbf{{\\colorbox[RGB]{{{0},{0},{0}}}{{\\textcolor[RGB]{{{255},\
+                    {255},{255}}}{{\\strut {word}}}}}}}"
 
         # for next tokens (gray)
         elif relevance == -2:
             b, g, r = 200, 200, 200
             if word.startswith("▁") or word.startswith("Ġ") or word.startswith(" "):
                 word = word.replace("▁", " ").replace("Ġ", " ")
-                latex_code += (
-                    f" \\textbf{{\\textcolor[RGB]{{{r},{g},{b}}}{{\\strut {word}}}}}"
-                )
+                latex_code += f" \\textbf{{\\textcolor[RGB]{{{r},{g},{b}}}{{\\strut {word}}}}}"
             else:
-                latex_code += (
-                    f"\\textbf{{\\textcolor[RGB]{{{r},{g},{b}}}{{\\strut {word}}}}}"
-                )
+                latex_code += f"\\textbf{{\\textcolor[RGB]{{{r},{g},{b}}}{{\\strut {word}}}}}"
 
         # for top pred
         elif relevance == -3:
@@ -224,16 +212,16 @@ def generate_latex(words, relevances, cmap="bwr", font=r"{18pt}{21pt}"):
     return latex_code
 
 
-def compile_latex_to_jpg(
-    latex_code, path="word_colors.pdf", delete_aux_files=True, dpi=500
-):
+def compile_latex_to_jpg(latex_code, path="word_colors.pdf", delete_aux_files=True, dpi=500):
     """
     Compile a LaTeX string into a JPG image.
 
     Parameters:
     - latex_code (str): The LaTeX source code to compile.
-    - path (str or Path): File path for intermediate PDF and auxiliary files. The output image is returned as an array.
-    - delete_aux_files (bool): Whether to delete auxiliary files (.aux, .log, .tex, .pdf) after compilation.
+    - path (str or Path): File path for intermediate PDF and auxiliary files.
+                            The output image is returned as an array.
+    - delete_aux_files (bool): Whether to delete auxiliary files (.aux, .log, .tex, .pdf)
+                        after compilation.
     - dpi (int): Resolution for the output image in dots per inch.
 
     Returns:
@@ -254,7 +242,7 @@ def compile_latex_to_jpg(
             stderr=subprocess.DEVNULL,
             timeout=60,
         )
-    except:
+    except Exception as _:
         print("Skip, fail to compile: " + res_code)
         return None
 
@@ -284,9 +272,10 @@ def vis_text(
     """
     Visualizes text tokens and their relevance scores as a heatmap image using LaTeX.
 
-    This function processes a list of words and their corresponding relevance scores, along with candidate tokens
-    and their scores, to create a color-coded heatmap visualization. It handles special LaTeX characters by escaping
-    them appropriately to ensure correct LaTeX rendering. The visualization includes the explained tokens, subsequent
+    This function processes a list of words and their corresponding relevance scores,
+    along with candidate tokens and their scores, to create a color-coded heatmap visualization.
+    It handles special LaTeX characters by escaping them appropriately to ensure
+    correct LaTeX rendering. The visualization includes the explained tokens, subsequent
     tokens, and top prediction candidates with distinct coloring based on their scores.
 
     Args:
@@ -295,8 +284,10 @@ def vis_text(
         candidates: Candidate tokens (top k predictions).
         candi_scores: Scores associated with each candidate token.
         vis_token_idx (int): Index of the token to vis (explain).
-        path (str, optional): File path to save the generated heatmap image. Defaults to 'heatmap.jpg'.
-        font (str, optional): LaTeX font size settings for the visualization. Defaults to r'{18pt}{21pt}'.
+        path (str, optional): File path to save the generated heatmap image.
+                                Defaults to 'heatmap.jpg'.
+        font (str, optional): LaTeX font size settings for the visualization.
+                                Defaults to r'{18pt}{21pt}'.
 
     Returns:
         str: Numpy image for the visualized texts
@@ -304,13 +295,11 @@ def vis_text(
 
     # add scores (-2, gray) for next tokens after the exaplained one
     add_scores = []
-    for i in range(len(relevances), len(words[:-1])):
+    for _ in range(len(relevances), len(words[:-1])):
         add_scores.append(-2)
 
     # explained tokens + next tokens + top pred candidates (see defination of scores in generate_latex)
-    all_scores = (
-        relevances.tolist() + add_scores + [-3] + candi_scores.cpu().float().tolist()
-    )
+    all_scores = relevances.tolist() + add_scores + [-3] + candi_scores.cpu().float().tolist()
     all_scores[vis_token_idx] = -1
 
     # scores correspond to the words
@@ -340,19 +329,19 @@ def id2idx(inp_id, target_id, return_last=False):
     Args:
         input_ids (list of int): The list of token IDs to search within.
         target_id (int or list of int): The target token ID or sequence of token IDs to find.
-        return_last (bool): If True and target_id is a list, return the index of the last token in the matched sequence.
+        return_last (bool): If True and target_id is a list, return the index
+                            of the last token in the matched sequence.
                             Otherwise, return the index of the first token.
 
     Returns:
-        int: The index of the target ID (or start/end of the sequence) in input_ids, or -1 if not found.
+        int: The index of the target ID (or start/end of the sequence)
+                in input_ids, or -1 if not found.
     """
 
     # use a array of tokens as the identifier
     if isinstance(target_id, list):
         n = len(target_id)
-        indexes = [
-            i for i in range(len(inp_id) - n + 1) if inp_id[i : i + n] == target_id
-        ]
+        indexes = [i for i in range(len(inp_id) - n + 1) if inp_id[i : i + n] == target_id]
         if len(indexes) > 0:
             # get the idx of the first token as the end identifier
             idx = indexes[-1]
@@ -367,7 +356,7 @@ def id2idx(inp_id, target_id, return_last=False):
     else:
         try:
             idx = inp_id.index(target_id)
-        except:
+        except Exception as _:
             idx = -1
     return idx
 
@@ -386,7 +375,8 @@ def multimodal_process(
     vis_width=-1,
 ):
     """
-    Process multimodal tokens: visualizing combined image and text activations with normalizing, filtering, and blending scores.
+    Process multimodal tokens: visualizing combined image and text
+    activations with normalizing, filtering, and blending scores.
 
     This function processes image and text token scores to generate a multimodal visualization:
     - Normalizes image and text token scores together for comparability.
@@ -397,8 +387,10 @@ def multimodal_process(
     - Optionally returns only evaluation maps without visualization.
 
     Args:
-        raw_img (np.ndarray or list of np.ndarray): Raw input image(s). For multiple images, provide a list.
-        vision_shape (tuple or list of tuples): Shape(s) of vision tokens (height, width) or batch size + shape for video.
+        raw_img (np.ndarray or list of np.ndarray): Raw input image(s).
+                                    For multiple images, provide a list.
+        vision_shape (tuple or list of tuples): Shape(s) of vision tokens
+                        (height, width) or batch size + shape for video.
         img_scores (np.ndarray): Activation scores for image tokens.
         txt_scores (np.ndarray): Activation scores for text tokens.
         txts (list): Visualized texts, including texts before the target and next words.
@@ -406,12 +398,15 @@ def multimodal_process(
         candi_scores (np.ndarray): Scores for candidate tokens.
         vis_token_idx (list): Index of the explained token in all_text to visualize.
         img_save_fn (str): Path to save the visualization image.
-        eval_only (bool, optional): If True, only returns evaluation score maps without visualization. Defaults to False.
-        vis_width (int, optional): Width for resizing images and visualizations. If -1, no resizing is done. Defaults to -1.
+        eval_only (bool, optional): If True, only returns evaluation score maps
+                                    without visualization. Defaults to False.
+        vis_width (int, optional): Width for resizing images and visualizations.
+                                If -1, no resizing is done. Defaults to -1.
 
     Returns:
         tuple:
-            - out_img (np.ndarray or None): Final blended visualization image combining image and text scores.
+            - out_img (np.ndarray or None): Final blended visualization image
+                                                combining image and text scores.
             - img_map (np.ndarray or list of np.ndarray): Evaluation score maps for image tokens.
     """
 
@@ -422,7 +417,7 @@ def multimodal_process(
     img_scores = all_scores[: len(img_scores)]
     txt_scores = all_scores[len(img_scores) :]
 
-    eval_only = True if img_save_fn == "" else False
+    eval_only = img_save_fn == ""
 
     # for multiple imgs
     if isinstance(vision_shape[0], tuple):
@@ -439,9 +434,7 @@ def multimodal_process(
 
             # apply the rank_guassian_filter for vision tokens of each img
             end_idx = start_idx + int(t_h * t_w)
-            img_map_ = rank_guassian_filter(
-                img_scores[start_idx:end_idx].reshape(t_h, t_w), 3
-            )
+            img_map_ = rank_guassian_filter(img_scores[start_idx:end_idx].reshape(t_h, t_w), 3)
             start_idx = end_idx
             img_map_ = (img_map_ * 255).astype("uint8")
 
@@ -459,16 +452,16 @@ def multimodal_process(
         if eval_only:
             return None, img_map, txt_scores
 
-        out_img = [
-            img_map[i] * 0.5 + resized_img[i] * 0.5 for i in range(len(vision_shape))
-        ]
+        out_img = [img_map[i] * 0.5 + resized_img[i] * 0.5 for i in range(len(vision_shape))]
         out_img = np.concatenate(out_img, 1)
 
         txt_map = None
         # text vis via latex
         try:
-            # txt_map = vis_text(txts, txt_scores, candidates, candi_scores, vis_token_idx, path=img_save_fn, font=r'{5pt}{6pt}')
-            # txt_map = vis_text(txts, txt_scores, candidates, candi_scores, vis_token_idx, path=img_save_fn, font=r'{5pt}{6pt}')
+            # txt_map = vis_text(txts, txt_scores, candidates, candi_scores, vis_token_idx,
+            #   path=img_save_fn, font=r'{5pt}{6pt}')
+            # txt_map = vis_text(txts, txt_scores, candidates, candi_scores, vis_token_idx,
+            #   path=img_save_fn, font=r'{5pt}{6pt}')
             txt_map = vis_text(
                 txts,
                 txt_scores,
@@ -478,16 +471,12 @@ def multimodal_process(
                 path=img_save_fn,
             )
 
-        except:
-            print(
-                "Skip text visualization, please check the installation of texlive-xetex."
-            )
+        except Exception:
+            print("Skip text visualization, please check the installation of texlive-xetex.")
             # return out_img, img_map
 
         if not isinstance(txt_map, np.ndarray):
-            print(
-                "Skip txt visualization, please check weather the text special character compatible with LaTeX."
-            )
+            print("Skip txt visualization, please check weather the text special character compatible with LaTeX.")
             pass
             # return out_img, img_map
 
@@ -497,11 +486,7 @@ def multimodal_process(
                 txt_map,
                 (
                     out_img.shape[1],
-                    int(
-                        float(txt_map.shape[0])
-                        / float(txt_map.shape[1])
-                        * out_img.shape[1]
-                    ),
+                    int(float(txt_map.shape[0]) / float(txt_map.shape[1]) * out_img.shape[1]),
                 ),
             )
             out_img = np.concatenate([out_img, txt_map], 0)
@@ -543,9 +528,7 @@ def multimodal_process(
             img_scores_3d = img_scores.reshape(num_tiles, t_h, t_w)
 
             # --- MASSIVE SPEEDUP: Apply vectorized filter to all tiles at once ---
-            img_scores_3d = vectorized_rank_gaussian_filter(
-                img_scores_3d, kernel_size=3
-            )
+            img_scores_3d = vectorized_rank_gaussian_filter(img_scores_3d, kernel_size=3)
 
             # Scale to uint8
             img_scores = (img_scores_3d * 255).astype("uint8")
@@ -566,9 +549,7 @@ def multimodal_process(
 
         else:
             if img_scores.size < expected_tokens:
-                raise ValueError(
-                    f"img_scores has {img_scores.size} elements, expected at least {expected_tokens}"
-                )
+                raise ValueError(f"img_scores has {img_scores.size} elements, expected at least {expected_tokens}")
 
             # Keep only the last tile (Global thumbnail for InternVL, or only tile for LLaVA)
             img_scores = img_scores[-expected_tokens:]
@@ -597,22 +578,16 @@ def multimodal_process(
                 vis_token_idx,
                 path=img_save_fn,
             )
-        except:
-            print(
-                "Skip text visualization, please check the installation of texlive-xetex."
-            )
+        except Exception:
+            print("Skip text visualization, please check the installation of texlive-xetex.")
             # return out_img, img_scores, txt_scores
 
         if not isinstance(txt_map, np.ndarray):
-            print(
-                "Skip txt visualization, please check weather the text special character compatible with LaTeX."
-            )
+            print("Skip txt visualization, please check weather the text special character compatible with LaTeX.")
             pass
             # return out_img, img_scores, txt_scores
         else:
-            txt_map = cv2.resize(
-                txt_map, (w, int(float(txt_map.shape[0]) / float(txt_map.shape[1]) * w))
-            )
+            txt_map = cv2.resize(txt_map, (w, int(float(txt_map.shape[0]) / float(txt_map.shape[1]) * w)))
             out_img = np.concatenate([out_img, txt_map], 0)
 
         return out_img, img_scores, txt_scores
@@ -625,21 +600,13 @@ def multimodal_process(
             h = int(float(h) / w * vis_width)
             w = int(vis_width)
 
-        img_scores = np.array(
-            [
-                rank_guassian_filter(_.reshape(t_h, t_w), 3)
-                for _ in np.array_split(img_scores, b)
-            ]
-        )
+        img_scores = np.array([rank_guassian_filter(_.reshape(t_h, t_w), 3) for _ in np.array_split(img_scores, b)])
         img_scores = (img_scores * 255).astype("uint8")
 
         if eval_only:
             return None, img_scores, txt_scores
 
-        img_map = [
-            cv2.resize(cv2.applyColorMap(_, cv2.COLORMAP_JET), (w, h))
-            for _ in img_scores
-        ]
+        img_map = [cv2.resize(cv2.applyColorMap(_, cv2.COLORMAP_JET), (w, h)) for _ in img_scores]
         if vis_width > 0:
             raw_img = [cv2.resize(_, (w, h)) for _ in raw_img]
         out_img = [img_map[i] * 0.5 + raw_img[i] * 0.5 for i in range(b)]
@@ -657,16 +624,12 @@ def multimodal_process(
                 path=img_save_fn,
                 font=r"{5pt}{6pt}",
             )
-        except:
-            print(
-                "Skip text visualization, please check the installation of texlive-xetex."
-            )
+        except Exception:
+            print("Skip text visualization, please check the installation of texlive-xetex.")
             # return out_img, img_scores
 
         if not isinstance(txt_map, np.ndarray):
-            print(
-                "Skip txt visualization, please check weather the text special character compatible with LaTeX."
-            )
+            print("Skip txt visualization, please check weather the text special character compatible with LaTeX.")
             pass
             # return out_img, img_scores
         else:
@@ -758,16 +721,16 @@ def TAM(
     # decode ids
     prompt_tokens = [tokens[prompt_idx[0] + 1 : prompt_idx[1]]]
     answer_tokens = [tokens[answer_idx[0] + 1 :]]
-    prompt = processor.tokenizer.tokenize(
-        processor.batch_decode(
-            prompt_tokens, skip_special_tokens=False, clean_up_tokenization_spaces=False
-        )[0]
-    )
-    answer = processor.tokenizer.tokenize(
-        processor.batch_decode(
-            answer_tokens, skip_special_tokens=False, clean_up_tokenization_spaces=False
-        )[0]
-    )
+    # prompt = processor.tokenizer.tokenize(
+    #     processor.batch_decode(prompt_tokens, skip_special_tokens=False, clean_up_tokenization_spaces=False)[0]
+    # )
+    # answer = processor.tokenizer.tokenize(
+    #     processor.batch_decode(answer_tokens, skip_special_tokens=False, clean_up_tokenization_spaces=False)[0]
+    # )
+    # Safe extraction: guarantees len(prompt) exactly equals len(prompt_tokens[0])
+    # and strictly respects the dimensions of the logit_list tensor!
+    prompt = [processor.tokenizer.decode([tok_id]) for tok_id in prompt_tokens[0]]
+    answer = [processor.tokenizer.decode([tok_id]) for tok_id in answer_tokens[0]]
     txt_all = prompt + answer
 
     # round_idx indicates the round of generation, this_token_idx is for the exaplained target token
@@ -829,9 +792,7 @@ def TAM(
         cls_id = tokens[answer_idx[0] + round_idx + 1]
 
     # class activation map from logits of the target token class
-    scores = torch.cat(
-        [logit_list[_][0, :, cls_id] for _ in range(round_idx + 1)], -1
-    ).clip(min=0)
+    scores = torch.cat([logit_list[_][0, :, cls_id] for _ in range(round_idx + 1)], -1).clip(min=0)
     # print(scores.shape)
     # get relevance scores
     scores = scores.detach().cpu().float().numpy()
@@ -849,10 +810,7 @@ def TAM(
     prompt_scores_raw = prompt_scores.copy()
     answer_scores_raw = answer_scores.copy()
 
-    if isinstance(img_idx, list):
-        img_scores = scores[img_idx[0] + 1 : img_idx[1]]
-    else:
-        img_scores = scores[img_idx]
+    img_scores = scores[img_idx[0] + 1 : img_idx[1]] if isinstance(img_idx, list) else scores[img_idx]
 
     # save img_scores for next Estimated Causal Inference
     img_scores_list.append(img_scores)
@@ -891,6 +849,18 @@ def TAM(
     else:  # video
         cv_img = [cv2.cvtColor(np.array(_), cv2.COLOR_RGB2BGR) for _ in vision_input[0]]
 
+    # ==========================================================
+    # BOUNDS SAFETY GUARD: Prevent Off-By-One Tensor Crashes
+    # ==========================================================
+    max_valid_idx = logit_list[round_idx].shape[1] - 1
+    
+    # Clamp the index so it cannot step off the edge of the tensor
+    if this_token_idx > max_valid_idx:
+        this_token_idx = max_valid_idx
+    elif this_token_idx < 0:
+        # Handle negative indexing safely
+        this_token_idx = max(0, max_valid_idx + 1 + this_token_idx)
+
     # prepare top candidates
     candi_scores, candi_ids = logit_list[round_idx][0, this_token_idx].topk(3)
     candi_scores = candi_scores.softmax(0)
@@ -927,11 +897,7 @@ def TAM(
             "answer_scores_raw": answer_scores_raw,
         }
 
-    if (
-        save_fn != ""
-        and vis_token_idx < (len(txt_all) - 1)
-        and isinstance(vis_img, np.ndarray)
-    ):
+    if save_fn != "" and vis_token_idx < (len(txt_all) - 1) and isinstance(vis_img, np.ndarray):
         os.makedirs(os.path.dirname(save_fn), exist_ok=True)
         cv2.imwrite(save_fn, vis_img)
 
@@ -1003,9 +969,7 @@ def get_attributions(
 
     # class activation map from logits of the target token class
     target_token = answer_tokens[target_token_idx]
-    scores = torch.cat(
-        [logit_list[_][0, :, target_token] for _ in range(round_idx + 1)], -1
-    ).clip(min=0)
+    scores = torch.cat([logit_list[_][0, :, target_token] for _ in range(round_idx + 1)], -1).clip(min=0)
 
     # get relevance scores
     scores = scores.detach().cpu().float().numpy()
@@ -1018,10 +982,7 @@ def get_attributions(
     prompt_scores_raw = prompt_scores.copy()
     answer_scores_raw = answer_scores.copy()
 
-    if isinstance(img_idx, list):
-        img_scores = scores[img_idx[0] + 1 : img_idx[1]]
-    else:
-        img_scores = scores[img_idx]
+    img_scores = scores[img_idx[0] + 1 : img_idx[1]] if isinstance(img_idx, list) else scores[img_idx]
 
     # save img_scores for next Estimated Causal Inference
     img_scores_list.append(img_scores)

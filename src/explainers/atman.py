@@ -4,8 +4,8 @@ import torch
 import torch.nn.functional as F
 
 from src.explainers import BaseExplainer
-from src.explainers.utils import align_llm_visuals_to_pixels
 from src.models import BaseVLMWrapper
+from src.utils.xai_utils import align_llm_visuals_to_pixels
 
 
 class AtManExplainer(BaseExplainer):
@@ -62,11 +62,7 @@ class AtManExplainer(BaseExplainer):
 
             # Expand our 2D boolean mask to match HF's internal 4D extended mask
             # [batch, seq] -> [batch, 1, 1, seq]
-            b_mask = (
-                self.current_suppress_mask.unsqueeze(1)
-                .unsqueeze(1)
-                .to(modified_mask.device)
-            )
+            b_mask = self.current_suppress_mask.unsqueeze(1).unsqueeze(1).to(modified_mask.device)
 
             # Softmax(-inf) = 0, effectively deleting the token from attention
             dtype_min = torch.finfo(modified_mask.dtype).min
@@ -87,16 +83,10 @@ class AtManExplainer(BaseExplainer):
         self.clear_hooks()
         for _, module in self.wrapper.model.named_modules():
             # Target only the LLM layers (skips the Vision Encoder)
-            if self.wrapper.llm_module_name and self.wrapper.llm_module_name in str(
-                type(module)
-            ):
+            if self.wrapper.llm_module_name and self.wrapper.llm_module_name in str(type(module)):
                 # if hasattr(module, "self_attn"): # Ensure it's an attention block
                 # register_forward_pre_hook with kwargs requires PyTorch >= 2.0
-                self.hooks.append(
-                    module.register_forward_pre_hook(
-                        self._interceptor_hook, with_kwargs=True
-                    )
-                )
+                self.hooks.append(module.register_forward_pre_hook(self._interceptor_hook, with_kwargs=True))
 
     def clear_hooks(self):
         """Removes all hooks and resets the state."""
@@ -123,9 +113,7 @@ class AtManExplainer(BaseExplainer):
 
         pred_results = kwargs.get("pred_results")
         if pred_results is None:
-            pred_results = self.wrapper.predict(
-                inputs=inputs, return_logits=False, **kwargs
-            )
+            pred_results = self.wrapper.predict(inputs=inputs, return_logits=False, **kwargs)
 
         full_ids = pred_results["full_ids"]
         t_start = inputs["input_ids"].shape[1]
@@ -136,9 +124,7 @@ class AtManExplainer(BaseExplainer):
         base_attention_mask = torch.ones_like(base_input_ids)
 
         # Isolate visual arguments (pixel_values, etc.) so we don't overwrite them
-        visual_kwargs = {
-            k: v for k, v in inputs.items() if k not in ["input_ids", "attention_mask"]
-        }
+        visual_kwargs = {k: v for k, v in inputs.items() if k not in ["input_ids", "attention_mask"]}
 
         # 1. RUN CLEAN BASELINE PASS (No hooks active here)
         with torch.no_grad():
@@ -153,9 +139,7 @@ class AtManExplainer(BaseExplainer):
             target_ids = full_ids[t_start:t_end].unsqueeze(0).unsqueeze(-1)
 
             clean_log_probs = F.log_softmax(clean_logits, dim=-1)
-            clean_target_log_probs = clean_log_probs.gather(
-                dim=-1, index=target_ids
-            ).squeeze(-1)
+            clean_target_log_probs = clean_log_probs.gather(dim=-1, index=target_ids).squeeze(-1)
 
             if self.conceptual_threshold is not None:
                 # Layer 0 hidden states for pure visual/text semantic similarity
@@ -166,9 +150,7 @@ class AtManExplainer(BaseExplainer):
         image_token_id = self.wrapper.model.config.image_token_id
         full_ids_1d = full_ids.squeeze()
 
-        prompt_mask = (
-            torch.arange(full_ids_1d.size(-1), device=full_ids_1d.device) < t_start
-        )
+        prompt_mask = torch.arange(full_ids_1d.size(-1), device=full_ids_1d.device) < t_start
         is_image_mask = full_ids_1d == image_token_id
         is_text_mask = ~is_image_mask
 
@@ -177,9 +159,7 @@ class AtManExplainer(BaseExplainer):
         all_indices_to_mask = torch.cat([text_indices_to_mask, image_indices_to_mask])
 
         num_perturbations = len(all_indices_to_mask)
-        attribution_matrix = torch.zeros(
-            (gen_len, base_input_ids.shape[1]), device=base_input_ids.device
-        )
+        attribution_matrix = torch.zeros((gen_len, base_input_ids.shape[1]), device=base_input_ids.device)
 
         # 3. RUN PERTURBED FORWARD PASSES (With hooks active)
         with self.manage_explainability_state():
@@ -214,9 +194,7 @@ class AtManExplainer(BaseExplainer):
                 for batch_idx, token_idx_to_suppress in enumerate(batch_indices):
                     if self.conceptual_threshold is not None:
                         sim_scores = similarity_matrix[token_idx_to_suppress]
-                        similar_indices = torch.where(
-                            sim_scores >= self.conceptual_threshold
-                        )[0]
+                        similar_indices = torch.where(sim_scores >= self.conceptual_threshold)[0]
                         suppress_bool_mask[batch_idx, similar_indices] = True
                     else:
                         suppress_bool_mask[batch_idx, token_idx_to_suppress] = True
@@ -232,34 +210,25 @@ class AtManExplainer(BaseExplainer):
                         **b_visual_kwargs,
                     )
 
-                perturbed_logits = perturbed_outputs.logits[
-                    :, t_start - 1 : t_end - 1, :
-                ]
+                perturbed_logits = perturbed_outputs.logits[:, t_start - 1 : t_end - 1, :]
                 perturbed_log_probs = F.log_softmax(perturbed_logits, dim=-1)
                 b_target_ids = target_ids.expand(current_b_size, -1, -1)
-                perturbed_target_log_probs = perturbed_log_probs.gather(
-                    dim=-1, index=b_target_ids
-                ).squeeze(-1)
+                perturbed_target_log_probs = perturbed_log_probs.gather(dim=-1, index=b_target_ids).squeeze(-1)
 
                 # 4. CALCULATE RELEVANCE
-                prob_drops = (
-                    clean_target_log_probs.expand(current_b_size, -1)
-                    - perturbed_target_log_probs
-                )
+                prob_drops = clean_target_log_probs.expand(current_b_size, -1) - perturbed_target_log_probs
                 prob_drops = torch.clamp(prob_drops, min=0.0)
 
                 for batch_idx, token_idx_to_suppress in enumerate(batch_indices):
                     attribution_matrix[:, token_idx_to_suppress] = prob_drops[batch_idx]
 
         # 5. FORMAT AND RETURN
-        final_text_mask = is_text_mask & prompt_mask
+        # final_text_mask = is_text_mask & prompt_mask
         final_image_mask = is_image_mask & prompt_mask
 
         token_attribution = attribution_matrix[:, prompt_mask]
         raw_pixel_attribution = attribution_matrix[:, final_image_mask]
 
-        pixel_attribution = align_llm_visuals_to_pixels(
-            raw_pixel_attribution, inputs, config=self.wrapper.model.config
-        )
+        pixel_attribution = align_llm_visuals_to_pixels(raw_pixel_attribution, inputs, config=self.wrapper.model.config)
 
         return token_attribution.detach().cpu(), pixel_attribution.detach().cpu()
