@@ -159,7 +159,10 @@ def run_benchmark(args):
                         "token_attribution": text_attrs[0:1],
                     }
 
-                    faith_sample = {"image": img, "text": question}
+                    if args.zero_state:
+                        faith_sample = {"image": None, "text": None}
+                    else:
+                        faith_sample = {"image": img, "text": question}
 
                     # 4. Compute Metrics
                     faith_scores = faith_metrics.compute(model_wrapper, faith_sample, xai_result)
@@ -234,6 +237,8 @@ if __name__ == "__main__":
         default="logs/results_test_baseline",
         help="Where to save logs",
     )
+    parser.add_argument("--zero-state", action="store_true", help="Use zero-state baseline (None image/text) for evaluation")
+
 
     args = parser.parse_args()
 

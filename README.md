@@ -1,6 +1,7 @@
 # Measuring Cross-Modal Synergy: A Game-Theoretic Benchmark for VLM Explainability
 
-> Official implementation for the NeurIPS 2026 Submission: Measuring Cross-Modal Synergy.
+Official implementation of **Measuring Cross-Modal Synergy: A Game-Theoretic Benchmark for VLM Explainability**.
+> Joël Roman Ky, Salah Ghamizi and Maxime Cordy. **Measuring Cross-Modal Synergy: A Game-Theoretic Benchmark for VLM Explainability.** NeurIPS Evaluations and Datasets Track, 2026. 
 
 This repository introduces Synergistic Faithfulness ($\mathcal{F}_{syn}$), a scalable, game-theoretic evaluation metric designed to measure true cross-modal reasoning in Vision-Language Models (VLMs). It circumvents the limitations found in traditional unimodal metrics by strictly isolating the Harsanyi interaction dividend between visual patches and text tokens.
 
@@ -18,7 +19,7 @@ This repository introduces Synergistic Faithfulness ($\mathcal{F}_{syn}$), a sca
     3. VLM-native methods 
         - [TAM](https://arxiv.org/abs/2506.23270),
         - [LLaVA-CAM](https://arxiv.org/abs/2406.06579).
-- **3 VLM Architectures**: Plug-and-play support for `LLaVA-1.5`, `Qwen2.5-VL`, and `InternVL-3.5`.
+- **VLM Architectures**: Plug-and-play support for mid-scale and frontier models, including LLaVA-1.5 (7B/13B), Qwen2.5-VL (3B), Qwen3-5 (27B), and InternVL-3.5 (2B/14B).
 - **Evaluation Suite**: Scripts to reproduce the benchmark across **RePOPE**, **CVBench**, and **MMStar**.
 
 
@@ -44,7 +45,7 @@ uv sync
 
 ## 🚀 Quick Start: Evaluating an Explainer
 
-To evaluate an explainer using the $\mathcal{F}_{syn}$ metric on a single multimodal instance, initialize the model and explainer using the provided factories.
+To evaluate an explainer using the $\mathcal{F}_{syn}$ metric on a single multimodal instance, initialize the model and explainer using the provided factories (See `notebooks/quickstart.ipynb`)
 
 ### 1. Load Model, Explainer, and Data
 
@@ -59,26 +60,36 @@ from src.metrics.faithfulness_utils import get_text_mask
 from src.explainers.utils import XAIVisualizer, load_yaml
 
 # Load Configurations
-model_config = load_yaml("configs/models/qwenvl.yaml")
-dataset_config = load_yaml("configs/datasets/repope.yaml")
-explainer_config = load_yaml("configs/explainers/tam.yaml")
+model_name = "internvl_2b"
+dataset_name = "mmstar"
+xai_name = "attnlrp"
+
+gpu_id = 0
+
+
+model_config = f"configs/models/{model_name}.yaml"
+model_config = load_yaml(model_config)
 
 # Initialize Model (e.g., Qwen2.5-VL)
 vlm = load_vlm(
     model_config=model_config,
-    attn_implementation="eager",
-    gpu_node=0,
-    output_attentions=False,
+    attn_implementation="eager", 
+    gpu_node=gpu_id,
+    output_attentions=True
 )
 
-# Initialize Explainer (e.g., TAM)
-explainer, _ = get_explainer(explainer_config, vlm, model_config)
-
 # Load Dataset
+dataset_config = f"configs/datasets/{dataset_name}.yaml"
+dataset_config = load_yaml(dataset_config)
 dataset_loader = get_dataloader(dataset_config)
 
+# Initialize Explainer (e.g., TAM)
+explainer_config = f"configs/explainers/{xai_name}.yaml"
+explainer, _ = get_explainer(explainer_config, vlm, model_config)
+
 # Get Sample Input
-sample = dataset_loader.dataset[0]
+idx = 0
+sample = dataset_loader.dataset[idx]
 image = sample.get("image", None)
 question = sample.get("question", None)
 
@@ -118,6 +129,7 @@ faith_metrics = FaithfulnessMetric(
     pad_token_id=pad_token_id,
     special_token_ids=vlm.special_token_ids,
     filter_keywords=filter_keywords,
+    mask_value=0.0
 )
 xai_result = {
     "inputs": inputs,
@@ -184,18 +196,18 @@ Our benchmark is designed to be highly modular. You can easily integrate your ow
 
 The full evaluation pipeline spanning $3$ VLMs, $9$ XAI methods, and $3$ datasets is controlled via configuration files located in the `configs/` directory.
 
-### 1. Evaluation script
+### 1. Main Faithfulness Benchmark
 To run the full suite of experiments (RePOPE, CVBench, MMStar), utilize the provided shell script:
 ```bash
-# bash scripts/run_all.sh GPU_ID MODEL_NAME DATASET_NAME "EXPLAINERS"
-bash scripts/run_all.sh 0 "qwenvl" "repope" "tam,rollout,lxt"
+# bash scripts/run_benchmark.sh GPU_ID MODEL_NAME DATASET_NAME "EXPLAINERS"
+bash scripts/run_benchmark.sh 0 "qwenvl" "repope" "tam,rollout,lxt"
 ```
 Note: Running the full instance benchmark requires significant compute time. We recommend executing this on a multi-GPU cluster.
 
 
 ### 2. Computing Shapley Correlation using macro-coalitions
 
-To reproduce the $\rho = 0.92$ Spearman correlation between $\mathcal{F}_{syn}$ and the exact Shapley Interaction Index (SII) (as seen in Figure 3 of the paper), run the dedicated correlation script:
+To reproduce the Spearman correlation between $\mathcal{F}_{syn}$ and the exact Shapley Interaction Index (SII) (as seen in Figure 3 of the paper), run the dedicated correlation script:
 ```bash
 # bash scripts/run_correlation.sh GPU_ID EXPLAINERS MODEL_NAME DATASET_NAME
 bash scripts/run_correlation.sh 0 "rollout" "qwenvl" "repope"
@@ -204,21 +216,34 @@ bash scripts/run_correlation.sh 0 "rollout" "qwenvl" "repope"
 This script computes the exact SII using macro-coalitional downsampling via the `shapiq` library (located in `src/metrics/shap_sii.py`) and compares it against our continuous perturbation approximation.
 
 
+
+
 ### 3. Computing Shapley Correlation using micro-coalitions
 
+To compute the exact atomic SII without macro-coalitional grouping (requires heavy downsampling to bound the state space to $N \le 17$):
+
 ```bash
-# bash scripts/run_correlation.sh GPU_ID EXPLAINERS MODEL_NAME DATASET_NAME
-bash scripts/run_correlation.sh 0 "rollout" "qwenvl" "repope"
+# bash scripts/run_exact_sii_correlation.sh GPU_ID EXPLAINERS MODEL_NAME DATASET_NAME
+bash scripts/run_exact_sii_correlation.sh 0 "rollout" "qwenvl" "repope"
 ```
 
-This script computes the exact SII without macro-coalitional downsampling via the `shapiq` library (located in `src/metrics/shap_sii.py`) on samples where the image is downsampled to reduce the  and compares it against our continuous perturbation approximation.
+This script computes the exact SII without macro-coalitional downsampling via the `shapiq` library (located in `src/metrics/shap_sii.py`) on samples where the image is downsampled to reduce the number of players and compares it against our continuous perturbation approximation. This script works only with `qwenvl_2.5`.
 
 
-### 4. Computing $\mathcal{F}_{syn}$ on GridVQA dataset
+### 4. Controlled Ground-Truth Validation on GridVQA dataset
+
+To evaluate the metric against the synthetic white-box VLM on the GridVQA $D_{pure}$ dataset to verify causal localization:
 
 ```bash
-# bash scripts/run_correlation.sh GPU_ID EXPLAINERS MODEL_NAME DATASET_NAME
-bash scripts/run_correlation.sh 0 "rollout" "qwenvl" "repope"
+bash scripts/run_gridvqa.sh 0 "rollout" "qwenvl" "repope"
+```
+
+### 5. Evaluating Spatial Plausibility (COCO)
+
+To reproduce the "Object Detector" hypothesis experiments comparing spatial plausibility (Object IoU, Point Game) against true cross-modal faithfulness, run the benchmark script on `coco` dataset:
+
+```bash
+bash scripts/run_benchmark.sh 0 "rollout" "qwenvl" "coco"
 ```
 
 ### 5. Hyperparameter $K$ sensitivity
@@ -230,12 +255,21 @@ To reproduce the experiments on the sensitivity of $K$ hyperparameter on $\mathc
 bash scripts/run_sensitivity.sh 0 "internvl_2b" "mmstar" "rollout,tam"
 ```
 
+### 6. Zero-state baseline $I_{\emptyset}$ sensitivity
+
+To reproduce the experiments on the sensitivity of the image zero-state baseline $I_{\emptyset}$ on $\mathcal{F}_{syn}$, run this:
+
+```bash
+# bash scripts/run_zero_baseline.sh GPU_ID MODEL_NAME DATASET_NAME EXPLAINERS
+bash scripts/run_zero_baseline.sh 0 "internvl_2b" "mmstar" "rollout,tam"
+```
 
 
 ## 📁 Repository Structure
 
 ```plaintext.
 ├── README.md
+├── LICENSE
 ├── configs                     # YAML configs for VLMs, explainers and datasets
 │   ├── datasets                
 │   ├── explainers
@@ -243,20 +277,25 @@ bash scripts/run_sensitivity.sh 0 "internvl_2b" "mmstar" "rollout,tam"
 ├── datasets                    # Local dataset cache/folders
 │   ├── README.md
 │   ├── coco
-│   └── repope
+│   ├── repope
 │   └── gridvqa
 ├── pyproject.toml
 ├── ruff.toml
 ├── scripts                     # Bash scripts for full benchmark replication
-│   ├── run_all.sh
-│   └── run_correlation.sh
+│   ├── run_benchmark.sh
+│   ├── run_correlation.sh
+│   ├── run_exact_sii_correlation.sh
+│   ├── run_gridvqa.sh
+│   ├── run_sensitivity.sh
+│   └── run_zero_baseline.sh
 ├── src
 │   ├── __pycache__
 │   ├── benchmarks/             # Evaluation loop logic  
 │   ├── datasets/               # Dataset loaders (RePOPE, CVBench, MMStar, COCO)
 │   ├── explainers/             # Autoregressive adaptations of XAI algorithms
 │   ├── metrics/                # Faithfulness metrics
-│   └── models/                 # VLM wrapper classes and HuggingFace processing
+│   ├── models/                 # VLM wrapper classes and HuggingFace processing
+│   └── utils/                  # Utils (XAI, Visualization, metrics)
 └── uv.lock
 
 
@@ -267,9 +306,10 @@ bash scripts/run_sensitivity.sh 0 "internvl_2b" "mmstar" "rollout,tam"
 
 If you find this metric or benchmark useful in your research, please consider citing our paper:
 ```code
-@inproceedings{anonymous2026synergy,
-  title={Measuring Cross-Modal Synergy: A Game-Theoretic Benchmark for VLM Explainability},
-  author={Anonymous Authors},
+@article{ky2026measuring,
+  title={Measuring Cross-Modal Synergy: A Benchmark for VLM Explainability},
+  author={Ky, Joël Roman and Ghamizi, Salah and Cordy, Maxime},
+  journal={arXiv preprint arXiv:2605.22168},
   year={2026}
 }
 ```

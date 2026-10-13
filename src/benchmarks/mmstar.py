@@ -168,8 +168,11 @@ def run_benchmark(args):
                         "token_attribution": text_attrs[0:1],
                     }
 
-                    #faith_sample = {"image": img, "text": question}
-                    faith_sample = {"image": None, "text": None}
+                    if args.zero_state:
+                        faith_sample = {"image": None, "text": None}
+                    else:
+                        faith_sample = {"image": img, "text": question}
+                        
                     faith_scores = faith_metrics.compute(model_wrapper, faith_sample, xai_result)
 
                     # 5. Full Logging with Token Info
@@ -238,6 +241,7 @@ if __name__ == "__main__":
     parser.add_argument("--gpu_id", type=int, default=0)
     parser.add_argument("--max_samples", type=int, default=None)
     parser.add_argument("--output_dir", type=str, default="logs/results_test_baseline")
+    parser.add_argument("--zero-state", action="store_true", help="Use zero-state baseline (None image/text) for evaluation")
 
     args = parser.parse_args()
     try:

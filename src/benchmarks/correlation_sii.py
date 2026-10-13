@@ -20,7 +20,7 @@ if Version(transformers.__version__) > Version("5.10"):
 # --- ABSTRACTED FACTORIES & UTILS ---
 from src.datasets.factory import get_dataloader
 from src.explainers.factory import get_explainer
-from src.metrics.shap_sii import eval_pure_sii_with_class
+from src.metrics.shap_sii import eval_macro_sii_with_class
 from src.models.factory import load_vlm
 from src.utils.faithfulness_utils import (
     _reshape_pixels_back_faithfulness,
@@ -560,7 +560,7 @@ def run_evaluation(args):
                     # METRIC 1: EXACT SHAP SII (Computationally Heavy)
                     # ==============================================================
                     start_time = time.perf_counter()
-                    shap_sii_res = eval_pure_sii_with_class(
+                    shap_sii_res = eval_macro_sii_with_class(
                         model=model_wrapper,
                         inputs=inputs,
                         target_ids=target_ids,
@@ -573,8 +573,8 @@ def run_evaluation(args):
                         blur_baseline=blur_baseline,
                         mask_value=0.0,
                         semantic_mask=semantic_mask,
-                        #n_background_groups=args.n_background_groups,
-                        #shapiq_budget=args.shapiq_budget,
+                        n_background_groups=args.n_background_groups,
+                        shapiq_budget=args.shapiq_budget,
                         batch_size=args.batch_size,
                     )
                     log_dict["time_sii"] = time.perf_counter() - start_time

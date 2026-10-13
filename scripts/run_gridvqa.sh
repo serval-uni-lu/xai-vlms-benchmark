@@ -32,7 +32,7 @@ fi
 # fi
 
 OUTPUT_DIR=(
-    "logs/"
+    "logs/gridvqa"
 )
 
 

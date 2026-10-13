@@ -424,7 +424,7 @@ class MicroSynergyGame(Game):
         return coalitions_outputs
 
 
-def eval_sii_auc_with_class(
+def eval_macro_sii_with_class(
     model: BaseVLMWrapper,
     inputs: dict[str, Any],
     target_ids: Tensor,
@@ -599,7 +599,7 @@ def eval_sii_auc_with_class(
         "sii_auc": np.trapezoid(sii_curve, x=perturbation_steps),
     }
 
-def eval_pure_sii_with_class(
+def eval_exact_sii_with_class(
     model: BaseVLMWrapper,
     inputs: dict[str, Any],
     target_ids: Tensor,
@@ -739,6 +739,7 @@ def eval_pure_sii_with_class(
         # ---------------------------------------------------------
         if shapiq_budget is None:
             shapiq_budget = 2 ** game.n_players
+        
      
         print(f"[*] Running exact atomic game with {game.n_players} players. Budget = {shapiq_budget}")
 

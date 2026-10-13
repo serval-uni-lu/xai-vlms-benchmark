@@ -171,7 +171,10 @@ def run_benchmark(args):
                         "token_attribution": text_attrs[0:1],
                     }
 
-                    faith_sample = {"image": img, "text": question}
+                    if args.zero_state:
+                        faith_sample = {"image": None, "text": None}
+                    else:
+                        faith_sample = {"image": img, "text": question}
                     faith_scores = faith_metrics.compute(model_wrapper, faith_sample, xai_result)
 
                     # 5. Full Logging with Token Info
@@ -193,26 +196,6 @@ def run_benchmark(args):
                     del pred_results, img_attrs, text_attrs
                     torch.cuda.empty_cache()
 
-                # except RuntimeError as e:
-                #     if "CUDA out of memory" in str(e):
-                #         print(f"\n[!] CUDA OOM on sample {idx}. Image/Text was too large. Skipping...")
-
-                #         # 1. Delete any massive variables that might have been partially created
-                #         for var in ["inputs", "pred_results", "xai_result", "img_attrs", "text_attrs"]:
-                #             if var in locals():
-                #                 del locals()[var]
-
-                #         # 2. Force Python garbage collection
-                #         gc.collect()
-
-                #         # 3. Flush the GPU memory back to the OS
-                #         torch.cuda.empty_cache()
-
-                #         # 4. Log the failure so your metrics don't get skewed
-                #         # log_dict = {"sample_idx": idx, "error": "OOM_SKIPPED"}
-                #         #save_to_jsonl(log_dict, output_file)
-
-                #         continue  # Move safely to the next sample
 
                 except Exception as e:
                     print(f"\n[!] Explainer failed on sample {idx}: {e}")
@@ -261,6 +244,8 @@ if __name__ == "__main__":
     parser.add_argument("--gpu_id", type=int, default=0)
     parser.add_argument("--max_samples", type=int, default=None)
     parser.add_argument("--output_dir", type=str, default="logs/results_test_baseline")
+    parser.add_argument("--zero-state", action="store_true", help="Use zero-state baseline (None image/text) for evaluation")
+
 
     args = parser.parse_args()
     try:
